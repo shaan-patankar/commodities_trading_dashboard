@@ -1,0 +1,1616 @@
+/* ========== CSS Variables ========== */
+
+:root {
+  --bg: #0b0f17;
+  --panel: rgba(255,255,255,0.04);
+  --panel-2: rgba(255,255,255,0.06);
+  --text: #e6e6e6;
+  --muted: rgba(230,230,230,0.65);
+  --border: rgba(255,255,255,0.08);
+  --accent-blue: #4aa8ff;
+  --accent-blue-glow: rgba(74, 168, 255, 0.48);
+}
+
+/* ========== Base / Global Styles ========== */
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+  cursor: default;
+}
+
+.app-root {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  background: radial-gradient(1200px 600px at 20% 0%, rgba(80, 120, 255, 0.08), transparent 50%),
+              radial-gradient(900px 500px at 90% 20%, rgba(0, 240, 200, 0.06), transparent 55%),
+              var(--bg);
+}
+
+.app-root::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(1000px 700px at 15% 15%, rgba(64, 179, 255, 0.08), transparent 65%),
+              rgba(5, 10, 18, 0.65);
+  backdrop-filter: blur(10px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms ease, backdrop-filter 180ms ease;
+  z-index: 30;
+}
+
+.app-root.sidebar-visible::after {
+  opacity: 1;
+  backdrop-filter: blur(14px);
+}
+
+/* ========== Top Bar ========== */
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  min-height: 64px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(10, 14, 22, 0.92);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 8px 30px rgba(0,0,0,0.25);
+}
+
+.topbar-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.topbar-spacer {
+  flex: 1;
+}
+
+.topbar-products {
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  gap: 18px;
+  justify-content: flex-end;
+  padding: 4px 0;
+  scrollbar-width: none;
+}
+
+.topbar-products::-webkit-scrollbar {
+  display: none;
+}
+
+#product-buttons {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: nowrap;
+}
+
+.sidebar-toggle-btn,
+.settings-toggle-btn {
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.04);
+  color: #fff;
+  font-weight: 600;
+  transition: background 150ms ease, transform 150ms ease, font-weight 150ms ease;
+}
+
+.settings-toggle-btn {
+  margin-left: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--bs-btn-padding-y, 0.375rem) var(--bs-btn-padding-x, 0.75rem);
+}
+
+.sidebar-toggle-btn:hover,
+.sidebar-toggle-btn:focus-visible {
+  background: rgba(255,255,255,0.08);
+  transform: translateY(-1px);
+  font-weight: 700;
+}
+
+.settings-toggle-btn:hover,
+.settings-toggle-btn:focus-visible {
+  background: rgba(255,255,255,0.08);
+  transform: translateY(-1px);
+  font-weight: 700;
+}
+
+.settings-gear-icon {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  text-shadow: none;
+}
+
+.settings-gear-icon svg,
+.settings-gear-icon img {
+  width: 20px;
+  height: 20px;
+  stroke: currentColor;
+}
+
+/* ========== Main Grid ========== */
+
+.body-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 2.1fr) minmax(360px, max-content);
+  grid-template-rows: minmax(0, 1.2fr) minmax(0, 0.8fr);
+  grid-template-areas:
+    "equity custom"
+    "drawdown metrics";
+  gap: 12px;
+  padding: 12px;
+  box-sizing: border-box;
+  overflow: auto;
+  scrollbar-width: none;
+}
+
+.body-grid::-webkit-scrollbar {
+  display: none;
+}
+
+.panel {
+  min-height: 0;
+  min-width: 0;
+}
+
+.panel-big {
+  position: relative;
+  z-index: 1;
+}
+
+.panel-small {
+  position: relative;
+  z-index: 2;
+}
+
+#panel-equity {
+  grid-area: equity;
+}
+
+#panel-custom {
+  grid-area: custom;
+}
+
+#panel-drawdown {
+  grid-area: drawdown;
+}
+
+#panel-metrics {
+  grid-area: metrics;
+}
+
+/* ========== Cards ========== */
+
+.card-dark {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.03));
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+  min-width: 0;
+}
+
+.card-header-dark {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255,255,255,0.03);
+  padding: 10px 12px;
+  position: relative;
+  z-index: 4;
+  pointer-events: auto;
+}
+
+.card-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.range-toggle-btn {
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.equity-expand-btn,
+.equity-close-btn,
+.drawdown-expand-btn,
+.drawdown-close-btn,
+.metrics-expand-btn,
+.metrics-close-btn,
+.custom-analytics-expand-btn,
+.custom-analytics-close-btn {
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  line-height: 1;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  position: relative;
+  z-index: 5;
+  transition: background 150ms ease, transform 150ms ease, box-shadow 150ms ease;
+}
+
+.equity-expand-btn:hover,
+.equity-close-btn:hover,
+.drawdown-expand-btn:hover,
+.drawdown-close-btn:hover,
+.metrics-expand-btn:hover,
+.metrics-close-btn:hover,
+.custom-analytics-expand-btn:hover,
+.custom-analytics-close-btn:hover {
+  background: rgba(255,255,255,0.08);
+  transform: translateY(-1px);
+}
+
+.card-body-tight {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: relative;
+  z-index: 1;
+  overflow: hidden;
+}
+
+/* ========== Graphs ========== */
+
+.graph {
+  width: 100%;
+  height: 100%;
+  flex: 1;
+  min-height: 0;
+  border-radius: 16px;
+  overflow: visible;
+  position: relative;
+  pointer-events: auto;
+  touch-action: auto;
+}
+
+.graph .js-plotly-plot {
+  height: 100% !important;
+  pointer-events: auto;
+  touch-action: auto;
+}
+
+.graph .modebar-container,
+.graph .modebar {
+  pointer-events: auto;
+  z-index: 6;
+}
+
+.graph .plot-container {
+  width: 100% !important;
+  height: 100% !important;
+  overflow: visible;
+}
+
+.custom-graph-wrapper {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  width: 100%;
+  position: relative;
+  z-index: 1;
+}
+
+/* ========== Custom Analytics Tabs ========== */
+
+.custom-tabs .nav {
+  justify-content: center;
+  width: 100%;
+}
+
+.custom-tabs-container {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  position: relative;
+  z-index: 2;
+  pointer-events: auto;
+}
+
+.custom-tabs .nav-link {
+  font-weight: 400;
+}
+
+.custom-tabs .nav-link:hover,
+.custom-tabs .nav-link:focus-visible {
+  box-shadow: none;
+}
+
+/* ========== Tables (Metrics) ========== */
+
+.metrics-table-wrapper {
+  height: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  width: max-content;
+  min-width: 100%;
+  overflow: hidden;
+  position: relative;
+  border: 1px solid rgba(180, 190, 200, 0.2);
+  border-radius: 14px;
+  clip-path: inset(0 round 14px);
+  pointer-events: auto;
+  z-index: 3;
+}
+
+.metrics-table-wrapper .dash-table-container,
+.metrics-table-wrapper .dash-spreadsheet-container,
+.metrics-table-wrapper .dash-spreadsheet-inner {
+  border-radius: inherit;
+  overflow: hidden;
+}
+
+.metrics-table-wrapper .dash-table-container,
+.metrics-table-wrapper .dash-spreadsheet-container {
+  max-height: 100% !important;
+  height: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: auto;
+  width: 100%;
+  min-width: 0;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  border-radius: inherit;
+  clip-path: inset(0 round 14px);
+  pointer-events: auto;
+  position: relative;
+  z-index: 1;
+}
+
+.metrics-table-wrapper .dash-spreadsheet-container {
+  overscroll-behavior: contain;
+}
+
+.metrics-table-wrapper .dash-spreadsheet-container::-webkit-scrollbar {
+  display: none;
+}
+
+.metrics-table-wrapper .dash-table-container::-webkit-scrollbar,
+.metrics-table-wrapper .dash-spreadsheet-inner::-webkit-scrollbar {
+  display: none;
+}
+
+/* Make all scrollbars within the metrics table invisible while keeping scroll functionality. */
+.metrics-table-wrapper * {
+  scrollbar-width: none;
+}
+
+.metrics-table-wrapper *::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.metrics-table-wrapper .dash-spreadsheet-inner {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  border-radius: inherit;
+  clip-path: inset(0 round 14px);
+}
+
+.metrics-table-wrapper .dash-table-container .dash-spreadsheet-inner,
+.metrics-table-wrapper .dash-table-container table {
+  border-radius: inherit;
+  overflow: hidden;
+}
+
+.metrics-table-wrapper .dash-table-container table {
+  border-collapse: separate;
+  border-spacing: 0;
+  min-width: 100%;
+  width: max-content;
+}
+
+.metrics-table-wrapper .dash-fixed-content,
+.metrics-table-wrapper .dash-fixed-row,
+.metrics-table-wrapper .dash-fixed-column,
+.metrics-table-wrapper .dash-fixed-cell,
+.metrics-table-wrapper .dash-header,
+.metrics-table-wrapper .dash-header th {
+  pointer-events: none;
+}
+
+.metrics-table-wrapper .dash-table-container tbody tr td {
+  border-bottom: 1px solid rgba(180, 190, 200, 0.2) !important;
+}
+
+.metrics-table-wrapper .dash-table-container tbody tr:last-child td {
+  border-bottom: none !important;
+}
+
+.metrics-table-wrapper .dash-table-container tbody tr:hover td {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.metrics-table-wrapper .dash-table-container table tbody tr:hover,
+.metrics-table-wrapper .dash-spreadsheet-container table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.04) !important;
+}
+
+.metrics-table-wrapper .dash-table-container thead th:first-child {
+  border-top-left-radius: 14px;
+}
+
+.metrics-table-wrapper .dash-table-container thead th:last-child {
+  border-top-right-radius: 14px;
+}
+
+.metrics-table-wrapper .dash-table-container tbody tr:last-child td:first-child {
+  border-bottom-left-radius: 14px;
+}
+
+.metrics-table-wrapper .dash-table-container tbody tr:last-child td:last-child {
+  border-bottom-right-radius: 14px;
+}
+
+/* Remove any default active/selected highlighting on the Key Metrics table */
+.metrics-table-wrapper .dash-spreadsheet td.cell--selected,
+.metrics-table-wrapper .dash-spreadsheet td.cell--active,
+.metrics-table-wrapper .dash-spreadsheet td.cell--highlight,
+.metrics-table-wrapper .dash-spreadsheet td.focused,
+.metrics-table-wrapper .dash-spreadsheet td:focus {
+  background: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+/* Remove column header highlight/underline when clicking a cell */
+.metrics-table-wrapper .dash-spreadsheet th.cell--selected,
+.metrics-table-wrapper .dash-spreadsheet th.cell--active,
+.metrics-table-wrapper .dash-spreadsheet th.cell--highlight,
+.metrics-table-wrapper .dash-spreadsheet th.focused,
+.metrics-table-wrapper .dash-spreadsheet th:focus {
+  box-shadow: none !important;
+  outline: none !important;
+  border-bottom: 1px solid rgba(180, 190, 200, 0.2) !important;
+}
+
+/* ========== Controls / Settings Sidebar ========== */
+
+.sidebar {
+  background: linear-gradient(180deg, rgba(14, 20, 32, 0.96), rgba(10, 14, 22, 0.98));
+  border-right: 1px solid var(--border);
+  box-shadow: 8px 0 30px rgba(0, 0, 0, 0.45);
+}
+
+.settings-sidebar {
+  border-right: none;
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 30px rgba(0, 0, 0, 0.45);
+}
+
+.sidebar .offcanvas-header {
+  border-bottom: 1px solid var(--border);
+  padding: 16px 18px;
+}
+
+.sidebar .offcanvas-title {
+  letter-spacing: 0.3px;
+  font-weight: 800;
+  color: #ffffff;
+}
+
+.sidebar-body {
+  padding: 16px 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.sidebar-body::-webkit-scrollbar,
+.sidebar .offcanvas-body::-webkit-scrollbar {
+  display: none;
+}
+
+.sidebar .offcanvas-body {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.sidebar-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sidebar-section-title {
+  font-size: 0.85rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 700;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+}
+
+.settings-radio .form-check,
+.settings-checklist .form-check {
+  margin-bottom: 8px;
+  padding: 0;
+}
+
+.settings-radio .form-check-input,
+.settings-checklist .form-check-input {
+  position: absolute;
+  opacity: 0;
+}
+
+.settings-radio .form-check-label,
+.settings-checklist .form-check-label {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+  background: rgba(255,255,255,0.03);
+  transition: background 150ms ease, border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.settings-radio .form-check-label:hover,
+.settings-checklist .form-check-label:hover,
+.settings-radio .form-check-input:focus + label,
+.settings-checklist .form-check-input:focus + label {
+  background: rgba(255,255,255,0.08);
+  transform: translateY(-1px);
+}
+
+.settings-radio .form-check-input:checked + label,
+.settings-checklist .form-check-input:checked + label {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 2px var(--accent-blue-glow), 0 10px 30px rgba(74, 168, 255, 0.18);
+  background: var(--accent-blue);
+  color: #eef4ff;
+}
+
+.settings-dropdown .Select-control {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text);
+}
+
+.settings-dropdown .Select-placeholder,
+.settings-dropdown .Select-value-label {
+  color: var(--text);
+}
+
+.settings-meta {
+  margin-top: 4px;
+}
+
+.settings-table {
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.settings-table .dash-spreadsheet td.cell--selected,
+.settings-table .dash-spreadsheet td.cell--active,
+.settings-table .dash-spreadsheet td.cell--highlight,
+.settings-table .dash-spreadsheet td.focused,
+.settings-table .dash-spreadsheet td:focus {
+  background: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+.settings-table .dash-spreadsheet th.cell--selected,
+.settings-table .dash-spreadsheet th.cell--active,
+.settings-table .dash-spreadsheet th.cell--highlight,
+.settings-table .dash-spreadsheet th.focused,
+.settings-table .dash-spreadsheet th:focus {
+  box-shadow: none !important;
+  outline: none !important;
+  border-bottom: 1px solid rgba(180, 190, 200, 0.2) !important;
+}
+
+.settings-option-btn {
+  width: 100%;
+  border-radius: 12px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  text-align: left;
+  transition: background 150ms ease, border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+  color: var(--text);
+  padding: 10px 12px;
+}
+
+.settings-option-btn:hover,
+.settings-option-btn:focus-visible {
+  background: rgba(255,255,255,0.08);
+  transform: translateY(-1px);
+}
+
+.settings-option-btn.active {
+  background: var(--accent-blue);
+  border-color: var(--accent-blue);
+  color: #fff;
+  font-weight: 600;
+}
+
+.settings-csv-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sidebar-nav-btn {
+  width: 100%;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-weight: 700;
+  box-shadow: 0 10px 24px rgba(0, 209, 178, 0.2);
+}
+
+.sidebar-nav-btn:hover,
+.sidebar-nav-btn:focus {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 30px rgba(0, 209, 178, 0.26);
+}
+
+.portfolio-btn {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  text-align: left;
+  font-weight: 500;
+  box-shadow: none;
+}
+
+.sidebar-divider {
+  border-color: var(--border);
+  opacity: 1;
+  margin: 4px 0;
+}
+
+.sidebar-spacer {
+  height: 4px;
+}
+
+/* ========== Strategy Radio / Product Pills ========== */
+
+.strategy-radio .form-check {
+  margin-bottom: 8px;
+  padding: 0;
+}
+
+.strategy-radio .form-check-input {
+  position: absolute;
+  opacity: 0;
+}
+
+.strategy-radio .form-check-label {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+  background: rgba(255,255,255,0.03);
+  transition: background 150ms ease, border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.strategy-radio .form-check-label:hover,
+.strategy-radio .form-check-input:focus + label {
+  background: rgba(255,255,255,0.08);
+  transform: translateY(-1px);
+}
+
+.strategy-radio .form-check-input:checked + label {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 2px var(--accent-blue-glow), 0 10px 30px rgba(74, 168, 255, 0.18);
+  background: var(--accent-blue);
+  color: #eef4ff;
+}
+
+.product-pill {
+  position: relative;
+  isolation: isolate;
+  border-radius: 999px;
+  border: 1px solid var(--border) !important;
+  background: rgba(255,255,255,0.03);
+  color: var(--text);
+  font-weight: 500;
+  padding: 7px 11px;
+  transition: background 140ms ease, border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+  box-shadow: 0 0px 0px rgba(0,0,0,0.28);
+  margin-bottom: 0 !important;
+  outline: none !important;
+}
+
+.product-pill::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 0 0 0px var(--accent-blue-glow);
+  opacity: 0;
+  transition: opacity 140ms ease, transform 140ms ease;
+  z-index: -1;
+}
+
+.product-pill:hover,
+.product-pill:focus-visible {
+  background: rgba(255,255,255,0.08) !important;
+  transform: translateY(-1px);
+}
+
+.product-pill:hover::after,
+.product-pill:focus-visible::after {
+  opacity: 0;
+  transform: scale(0);
+}
+
+.product-pill.active,
+.product-pill:active {
+  border-color: var(--accent-blue) !important;
+  box-shadow: 0 0 0 0px var(--accent-blue-glow), 0 0 0px rgba(74, 168, 255, 0.3), 0 0px 0px rgba(74, 168, 255, 0.18);
+  background: var(--accent-blue) !important;
+  color: #eef4ff !important;
+}
+
+.product-pill.active::after,
+.product-pill:active::after {
+  opacity: 0.85;
+  transform: scale(1.06);
+}
+
+/* ========== Modals (Equity, Drawdown, Metrics, Custom Analytics, CSV) ========== */
+
+.app-root.equity-modal-visible,
+.app-root.drawdown-modal-visible,
+.app-root.metrics-modal-visible,
+.app-root.custom-analytics-visible,
+.app-root.csv-modal-visible {
+  overflow: hidden;
+}
+
+.app-root.equity-modal-visible::after,
+.app-root.drawdown-modal-visible::after,
+.app-root.metrics-modal-visible::after,
+.app-root.custom-analytics-visible::after,
+.app-root.csv-modal-visible::after {
+  opacity: 1;
+  backdrop-filter: blur(14px);
+}
+
+.app-root.equity-modal-visible .topbar,
+.app-root.equity-modal-visible .body-grid,
+.app-root.drawdown-modal-visible .topbar,
+.app-root.drawdown-modal-visible .body-grid,
+.app-root.metrics-modal-visible .topbar,
+.app-root.metrics-modal-visible .body-grid,
+.app-root.custom-analytics-visible .topbar,
+.app-root.custom-analytics-visible .body-grid,
+.app-root.csv-modal-visible .topbar,
+.app-root.csv-modal-visible .body-grid {
+  pointer-events: none;
+}
+
+/* -- Equity Modal -- */
+
+.equity-modal-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: transparent;
+  cursor: default;
+  backdrop-filter: blur(0px);
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  transition: opacity 180ms ease, backdrop-filter 180ms ease;
+  z-index: 40;
+}
+
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(4, 8, 15, 0.55);
+  backdrop-filter: blur(0px);
+  transition: opacity 180ms ease, backdrop-filter 180ms ease;
+  z-index: 0;
+}
+
+.equity-modal-overlay *,
+.drawdown-modal-overlay *,
+.metrics-modal-overlay *,
+.custom-analytics-modal-overlay *,
+.csv-modal-overlay * {
+  pointer-events: none;
+}
+
+.equity-modal-overlay.open {
+  opacity: 1;
+  pointer-events: auto;
+  backdrop-filter: blur(14px);
+  visibility: visible;
+}
+
+.equity-modal-overlay.open .modal-backdrop,
+.drawdown-modal-overlay.open .modal-backdrop,
+.metrics-modal-overlay.open .modal-backdrop,
+.custom-analytics-modal-overlay.open .modal-backdrop,
+.csv-modal-overlay.open .modal-backdrop {
+  backdrop-filter: blur(14px);
+}
+
+.equity-modal-overlay.open *,
+.drawdown-modal-overlay.open *,
+.metrics-modal-overlay.open *,
+.custom-analytics-modal-overlay.open *,
+.csv-modal-overlay.open * {
+  pointer-events: auto;
+}
+
+.equity-modal {
+  width: min(1200px, 92vw);
+  height: min(760px, 86vh);
+  background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
+  border-radius: 22px;
+  border: 1px solid var(--border);
+  box-shadow: 0 18px 50px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.02);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  z-index: 1;
+}
+
+.equity-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255,255,255,0.04);
+}
+
+.equity-modal-body {
+  flex: 1;
+  display: flex;
+  padding: 10px 12px 12px;
+  background: rgba(0,0,0,0.25);
+}
+
+/* -- Drawdown Modal -- */
+
+.drawdown-modal-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: transparent;
+  cursor: default;
+  backdrop-filter: blur(0px);
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  transition: opacity 180ms ease, backdrop-filter 180ms ease;
+  z-index: 40;
+}
+
+.drawdown-modal-overlay.open {
+  opacity: 1;
+  pointer-events: auto;
+  backdrop-filter: blur(14px);
+  visibility: visible;
+}
+
+.drawdown-modal {
+  width: min(1200px, 92vw);
+  height: min(760px, 86vh);
+  background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
+  border-radius: 28px;
+  border: 1px solid var(--border);
+  box-shadow: 0 18px 50px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.02);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  z-index: 1;
+}
+
+.drawdown-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255,255,255,0.04);
+}
+
+.drawdown-modal-body {
+  flex: 1;
+  display: flex;
+  padding: 12px 14px 14px;
+  background: rgba(0,0,0,0.25);
+}
+
+/* -- Metrics Modal -- */
+
+.metrics-modal-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+  background: transparent;
+  cursor: default;
+  backdrop-filter: blur(0px);
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  transition: opacity 180ms ease, backdrop-filter 180ms ease;
+  z-index: 40;
+}
+
+.metrics-modal-overlay.open {
+  opacity: 1;
+  pointer-events: auto;
+  backdrop-filter: blur(14px);
+  visibility: visible;
+}
+
+.metrics-modal {
+  width: fit-content;
+  max-width: 96vw;
+  min-width: min(1080px, 92vw);
+  height: min(720px, 82vh);
+  background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02));
+  border-radius: 30px;
+  border: 1px solid var(--border);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.03);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  z-index: 1;
+}
+
+.metrics-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255,255,255,0.05);
+}
+
+.metrics-modal-body {
+  flex: 1;
+  display: flex;
+  padding: 14px 16px 18px;
+  background: rgba(0,0,0,0.24);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.metrics-modal-table {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  width: 100%;
+}
+
+/* -- Custom Analytics Modal -- */
+
+.custom-analytics-modal-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+  background: transparent;
+  cursor: default;
+  backdrop-filter: blur(0px);
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  transition: opacity 180ms ease, backdrop-filter 180ms ease;
+  z-index: 40;
+}
+
+.custom-analytics-modal-overlay.open {
+  opacity: 1;
+  pointer-events: auto;
+  backdrop-filter: blur(14px);
+  visibility: visible;
+}
+
+.custom-analytics-modal {
+  width: min(1040px, 92vw);
+  height: min(640px, 80vh);
+  background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02));
+  border-radius: 30px;
+  border: 1px solid var(--border);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.03);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  z-index: 1;
+}
+
+.custom-analytics-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255,255,255,0.05);
+}
+
+.custom-analytics-modal-body {
+  flex: 1;
+  display: flex;
+  padding: 14px 16px 18px;
+  background: rgba(0,0,0,0.24);
+}
+
+/* -- CSV Modal -- */
+
+.csv-modal-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+  background: transparent;
+  cursor: default;
+  backdrop-filter: blur(0px);
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  transition: opacity 180ms ease, backdrop-filter 180ms ease;
+  z-index: 40;
+}
+
+.csv-modal-overlay.open {
+  opacity: 1;
+  pointer-events: auto;
+  backdrop-filter: blur(14px);
+  visibility: visible;
+}
+
+.csv-modal {
+  width: fit-content;
+  max-width: 96vw;
+  min-width: min(1080px, 92vw);
+  height: min(760px, 86vh);
+  background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
+  border-radius: 26px;
+  border: 1px solid var(--border);
+  box-shadow: 0 18px 50px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.02);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  z-index: 1;
+}
+
+.csv-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255,255,255,0.04);
+}
+
+.csv-modal-meta {
+  padding: 8px 16px 0;
+}
+
+.csv-modal-meta:empty {
+  display: none;
+}
+
+.csv-modal-body {
+  flex: 1;
+  display: flex;
+  padding: 12px 16px 18px;
+  background: rgba(0,0,0,0.24);
+  min-height: 0;
+}
+
+.csv-close-btn {
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  line-height: 1;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+/* ========== Layout Variants (Focused, Analytics, Panel-Hidden) ========== */
+
+.body-grid.layout-focused {
+  grid-template-columns: minmax(0, 2.6fr) minmax(320px, max-content);
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-areas: "equity metrics";
+}
+
+.body-grid.layout-analytics {
+  grid-template-columns: minmax(0, 2.1fr) minmax(360px, max-content);
+  grid-template-rows: minmax(0, 1.2fr) minmax(0, 0.8fr);
+  grid-template-areas:
+    "equity custom"
+    "drawdown metrics";
+}
+
+.body-grid.layout-analytics .custom-tabs-container {
+  display: none;
+}
+
+.body-grid.panel-hidden-custom {
+  grid-template-areas:
+    "equity metrics"
+    "drawdown metrics";
+}
+
+.body-grid.panel-hidden-metrics {
+  grid-template-areas:
+    "equity equity"
+    "drawdown custom";
+}
+
+.body-grid.panel-hidden-drawdown {
+  grid-template-areas:
+    "equity custom"
+    "equity metrics";
+}
+
+.body-grid.panel-hidden-equity {
+  grid-template-areas:
+    "drawdown custom"
+    "drawdown metrics";
+}
+
+/* ========== Responsive ========== */
+
+@media (max-width: 1100px) {
+  .body-grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+    grid-template-areas:
+      "equity"
+      "custom"
+      "drawdown"
+      "metrics";
+  }
+
+  .panel-big,
+  .panel-small {
+    grid-column: 1;
+  }
+
+  .body-grid.layout-focused {
+    grid-template-areas:
+      "equity"
+      "metrics";
+  }
+}
+
+/* ========== Light Mode Theme ========== */
+
+/* Variables and background */
+.app-root.theme-light {
+  --bg: #f0f2f5;
+  --panel: rgba(0,0,0,0.03);
+  --panel-2: rgba(0,0,0,0.05);
+  --text: #1a2233;
+  --muted: rgba(26,34,51,0.55);
+  --border: rgba(0,0,0,0.1);
+  --accent-blue: #2b7de9;
+  --accent-blue-glow: rgba(43, 125, 233, 0.35);
+  background:
+    radial-gradient(1200px 600px at 20% 0%, rgba(43, 125, 233, 0.06), transparent 50%),
+    radial-gradient(900px 500px at 90% 20%, rgba(0, 180, 160, 0.04), transparent 55%),
+    #f0f2f5;
+}
+
+.app-root.theme-light::after {
+  background: radial-gradient(1000px 700px at 15% 15%, rgba(43, 125, 233, 0.05), transparent 65%),
+              rgba(240, 242, 245, 0.65);
+}
+
+/* Top bar */
+.app-root.theme-light .topbar {
+  background: rgba(255, 255, 255, 0.92);
+  border-bottom-color: rgba(0,0,0,0.08);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+}
+
+.app-root.theme-light .topbar-title .h5,
+.app-root.theme-light #header-title {
+  color: #1a2233 !important;
+}
+
+.app-root.theme-light .sidebar-toggle-btn,
+.app-root.theme-light .settings-toggle-btn {
+  border-color: rgba(0,0,0,0.12);
+  background: rgba(0,0,0,0.04);
+  color: #1a2233;
+}
+
+.app-root.theme-light .sidebar-toggle-btn {
+  color: #1a2233 !important;
+}
+
+.app-root.theme-light .sidebar-toggle-btn:hover,
+.app-root.theme-light .settings-toggle-btn:hover {
+  background: rgba(0,0,0,0.08);
+}
+
+.app-root.theme-light .settings-gear-icon {
+  filter: invert(1);
+}
+
+/* Product pills */
+.app-root.theme-light .product-pill {
+  border-color: rgba(0,0,0,0.12);
+  background: rgba(0,0,0,0.03);
+  color: #1a2233;
+}
+
+.app-root.theme-light .product-pill:hover {
+  background: transparent;
+}
+
+.app-root.theme-light .product-pill.active {
+  background: var(--accent-blue);
+  border-color: var(--accent-blue);
+  color: #fff;
+}
+
+/* Cards */
+.app-root.theme-light .card-dark {
+  background: rgba(255, 255, 255, 0.75);
+  border-color: rgba(0,0,0,0.08);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+
+.app-root.theme-light .card-header-dark {
+  background: rgba(0,0,0,0.02);
+  border-bottom-color: rgba(0,0,0,0.06);
+  color: #1a2233;
+}
+
+.app-root.theme-light .card-header-dark h6,
+.app-root.theme-light .card-header-dark span,
+.app-root.theme-light .card-header-dark .fw-semibold {
+  color: #1a2233 !important;
+}
+
+/* Range / expand buttons */
+.app-root.theme-light .range-toggle-btn {
+  color: rgba(26,34,51,0.6);
+  border-color: rgba(0,0,0,0.1);
+}
+
+.app-root.theme-light .range-toggle-btn:hover,
+.app-root.theme-light .range-toggle-btn:focus {
+  background: transparent !important;
+  color: var(--accent-blue) !important;
+  border-color: var(--accent-blue) !important;
+}
+
+.app-root.theme-light .equity-expand-btn,
+.app-root.theme-light .equity-close-btn,
+.app-root.theme-light .drawdown-expand-btn,
+.app-root.theme-light .drawdown-close-btn,
+.app-root.theme-light .metrics-expand-btn,
+.app-root.theme-light .metrics-close-btn,
+.app-root.theme-light .custom-analytics-expand-btn,
+.app-root.theme-light .custom-analytics-close-btn {
+  color: rgba(26,34,51,0.6);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.app-root.theme-light .equity-expand-btn:hover,
+.app-root.theme-light .drawdown-expand-btn:hover,
+.app-root.theme-light .metrics-expand-btn:hover,
+.app-root.theme-light .custom-analytics-expand-btn:hover {
+  background: rgba(0,0,0,0.06);
+}
+
+/* Custom Analytics tabs */
+.app-root.theme-light .custom-tabs .nav-link {
+  color: rgba(26,34,51,0.55);
+  background: rgba(0,0,0,0.03);
+  border-color: rgba(0,0,0,0.06);
+}
+
+.app-root.theme-light .custom-tabs .nav-link.active {
+  color: #fff !important;
+  background: var(--accent-blue) !important;
+  border-color: var(--accent-blue) !important;
+}
+
+.app-root.theme-light .custom-tabs .nav-link:hover {
+  color: #1a2233;
+  background: rgba(0,0,0,0.06);
+}
+
+/* Metrics table */
+.app-root.theme-light .dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner th {
+  color: #1a2233 !important;
+  background: rgba(0,0,0,0.03) !important;
+  border-color: rgba(0,0,0,0.08) !important;
+}
+
+.app-root.theme-light .dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner td {
+  color: #1a2233 !important;
+  background: transparent !important;
+  border-color: rgba(0,0,0,0.06) !important;
+}
+
+.app-root.theme-light .metrics-table-wrapper {
+  border-color: rgba(0,0,0,0.1);
+}
+
+.app-root.theme-light .metrics-table-wrapper .dash-table-container tbody tr:hover td {
+  background: rgba(0,0,0,0.03) !important;
+}
+
+.app-root.theme-light .metrics-table-wrapper .dash-table-container tbody tr td {
+  border-bottom-color: rgba(0,0,0,0.06) !important;
+}
+
+/* Sidebar (inside .app-root) */
+.app-root.theme-light .sidebar .offcanvas-title {
+  color: #1a2233 !important;
+}
+
+.app-root.theme-light .sidebar .offcanvas-header {
+  border-bottom-color: rgba(0,0,0,0.08);
+}
+
+.app-root.theme-light .sidebar-section-title {
+  color: rgba(26,34,51,0.5);
+}
+
+/* Settings option buttons */
+.app-root.theme-light .settings-option-btn {
+  background: rgba(0,0,0,0.03);
+  border-color: rgba(0,0,0,0.1);
+  color: #1a2233;
+}
+
+.app-root.theme-light .settings-option-btn:hover {
+  background: rgba(0,0,0,0.07);
+}
+
+.app-root.theme-light .settings-option-btn.active {
+  background: var(--accent-blue);
+  border-color: var(--accent-blue);
+  color: #fff;
+}
+
+/* Strategy radio labels */
+.app-root.theme-light .strategy-radio .form-check-label {
+  background: rgba(0,0,0,0.03);
+  border-color: rgba(0,0,0,0.1);
+  color: #1a2233 !important;
+}
+
+.app-root.theme-light .strategy-radio .form-check-label:hover {
+  background: rgba(0,0,0,0.06);
+}
+
+.app-root.theme-light .strategy-radio .form-check-input:checked + label {
+  background: var(--accent-blue);
+  border-color: var(--accent-blue);
+  color: #fff !important;
+}
+
+/* Settings radio/checklist labels */
+.app-root.theme-light .settings-radio .form-check-label,
+.app-root.theme-light .settings-checklist .form-check-label {
+  background: rgba(0,0,0,0.03);
+  border-color: rgba(0,0,0,0.1);
+  color: #1a2233;
+}
+
+.app-root.theme-light .settings-radio .form-check-label:hover,
+.app-root.theme-light .settings-checklist .form-check-label:hover {
+  background: rgba(0,0,0,0.06);
+}
+
+.app-root.theme-light .settings-radio .form-check-input:checked + label,
+.app-root.theme-light .settings-checklist .form-check-input:checked + label {
+  background: var(--accent-blue);
+  border-color: var(--accent-blue);
+  color: #fff;
+}
+
+/* Modal overlays */
+.app-root.theme-light .equity-modal,
+.app-root.theme-light .drawdown-modal,
+.app-root.theme-light .metrics-modal,
+.app-root.theme-light .custom-analytics-modal,
+.app-root.theme-light .csv-modal {
+  background: rgba(255,255,255,0.95);
+  border-color: rgba(0,0,0,0.1);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.12);
+}
+
+.app-root.theme-light .equity-modal-header,
+.app-root.theme-light .drawdown-modal-header,
+.app-root.theme-light .metrics-modal-header,
+.app-root.theme-light .custom-analytics-modal-header,
+.app-root.theme-light .csv-modal-header {
+  background: rgba(0,0,0,0.02);
+  border-bottom-color: rgba(0,0,0,0.06);
+}
+
+.app-root.theme-light .equity-modal-body,
+.app-root.theme-light .drawdown-modal-body,
+.app-root.theme-light .metrics-modal-body,
+.app-root.theme-light .custom-analytics-modal-body,
+.app-root.theme-light .csv-modal-body {
+  background: rgba(0,0,0,0.01);
+}
+
+.app-root.theme-light .modal-backdrop {
+  background: rgba(255, 255, 255, 0.55);
+}
+
+/* Offcanvas (rendered outside .app-root in the DOM -- use body:has() to detect theme) */
+body:has(.app-root.theme-light) .offcanvas,
+.app-root.theme-light .offcanvas {
+  background: linear-gradient(180deg, #f6f7f9, #f0f2f5) !important;
+  color: #1a2233 !important;
+  border-color: rgba(0,0,0,0.08) !important;
+  box-shadow: -4px 0 20px rgba(0,0,0,0.06) !important;
+}
+
+body:has(.app-root.theme-light) .offcanvas .offcanvas-header {
+  border-bottom-color: rgba(0,0,0,0.08) !important;
+}
+
+body:has(.app-root.theme-light) .offcanvas .offcanvas-title {
+  color: #1a2233 !important;
+}
+
+body:has(.app-root.theme-light) .offcanvas .sidebar-section-title {
+  color: rgba(26,34,51,0.5) !important;
+  border-bottom-color: rgba(0,0,0,0.08) !important;
+}
+
+body:has(.app-root.theme-light) .offcanvas .settings-option-btn {
+  background: rgba(0,0,0,0.03);
+  border-color: rgba(0,0,0,0.1);
+  color: #1a2233;
+}
+
+body:has(.app-root.theme-light) .offcanvas .settings-option-btn:hover {
+  background: rgba(0,0,0,0.07);
+}
+
+body:has(.app-root.theme-light) .offcanvas .settings-option-btn.active {
+  background: #2b7de9;
+  border-color: #2b7de9;
+  color: #fff;
+}
+
+body:has(.app-root.theme-light) .offcanvas .settings-radio .form-check-label,
+body:has(.app-root.theme-light) .offcanvas .settings-checklist .form-check-label {
+  background: rgba(0,0,0,0.03);
+  border-color: rgba(0,0,0,0.1);
+  color: #1a2233;
+}
+
+body:has(.app-root.theme-light) .offcanvas .settings-radio .form-check-label:hover,
+body:has(.app-root.theme-light) .offcanvas .settings-checklist .form-check-label:hover {
+  background: rgba(0,0,0,0.06);
+}
+
+body:has(.app-root.theme-light) .offcanvas .settings-radio .form-check-input:checked + label,
+body:has(.app-root.theme-light) .offcanvas .settings-checklist .form-check-input:checked + label {
+  background: #2b7de9;
+  border-color: #2b7de9;
+  color: #fff;
+}
+
+body:has(.app-root.theme-light) .offcanvas .strategy-radio .form-check-label {
+  background: rgba(0,0,0,0.03);
+  border-color: rgba(0,0,0,0.1);
+  color: #1a2233 !important;
+}
+
+body:has(.app-root.theme-light) .offcanvas .strategy-radio .form-check-label:hover {
+  background: rgba(0,0,0,0.06);
+}
+
+body:has(.app-root.theme-light) .offcanvas .strategy-radio .form-check-input:checked + label {
+  background: #2b7de9;
+  border-color: #2b7de9;
+  color: #fff !important;
+}
+
+body:has(.app-root.theme-light) .offcanvas-backdrop {
+  background: rgba(0,0,0,0.15) !important;
+}
