@@ -15,6 +15,7 @@ from dash import dash_table, dcc, html
 import dash_bootstrap_components as dbc
 
 from dashboard.config import GRAPH_CONFIG, LAYOUT_OPTIONS, PANEL_KEYS, SETTINGS_GEAR_SVG
+from dashboard.table_styles import metrics_cell_style, metrics_header_style
 from dashboard.utils import format_product_label
 
 
@@ -40,6 +41,42 @@ def product_button(label: str, value: str) -> dbc.Button:
         className="product-pill",
         n_clicks=0,
         active=False,
+    )
+
+
+def var_alloc_row(product: str, value: float | None = None) -> html.Div:
+    """Build one product allocation row for the VaR config modal.
+
+    Args:
+        product: Product column name (pattern-matched into the input id).
+        value:   Pre-seeded percentage (per-strategy memory), or ``None``.
+
+    Returns:
+        A row with a label, a numeric ``%`` input, and an inline error slot.
+    """
+    return html.Div(
+        className="var-alloc-row",
+        children=[
+            html.Span(format_product_label(product), className="var-alloc-label"),
+            html.Div(
+                className="var-alloc-input-group",
+                children=[
+                    dcc.Input(
+                        id={"type": "var-alloc-input", "product": product},
+                        type="number",
+                        min=0,
+                        max=100,
+                        step="any",
+                        value=value,
+                        className="var-alloc-input",
+                        debounce=True,
+                        placeholder="0",
+                    ),
+                    html.Span("%", className="var-alloc-pct"),
+                ],
+            ),
+            html.Span("", id={"type": "var-alloc-error", "product": product}, className="var-row-error"),
+        ],
     )
 
 
@@ -94,6 +131,10 @@ def build_layout(strategy_names: List[str], default_strategy: str, products: Lis
             dcc.Store(id="store-selected-csv", data=default_csv),
             dcc.Store(id="store-csv-modal-open", data=False),
             dcc.Store(id="store-theme", data="deep"),
+            # VaR scaling: config keyed per strategy -> {strategy: {total_var, allocations, active}}
+            dcc.Store(id="store-var-config", data={}),
+            dcc.Store(id="store-var-modal-open", data=False),
+            dcc.Store(id="store-var-expand-open", data=False),
             html.Div(
                 className="topbar",
                 children=[
@@ -371,6 +412,16 @@ def build_layout(strategy_names: List[str], default_strategy: str, products: Lis
                                                         n_clicks=0,
                                                         size="sm",
                                                     ),
+                                                    dbc.Button(
+                                                        "⛶",
+                                                        id="open-var-expand-modal",
+                                                        color="secondary",
+                                                        outline=True,
+                                                        className="custom-analytics-expand-btn",
+                                                        n_clicks=0,
+                                                        size="sm",
+                                                        style={"display": "none"},
+                                                    ),
                                                 ],
                                             ),
                                         ],
@@ -389,11 +440,13 @@ def build_layout(strategy_names: List[str], default_strategy: str, products: Lis
                                                             dbc.Tab(label="Rolling Sharpe", tab_id="tab-roll"),
                                                             dbc.Tab(label="Seasonality", tab_id="tab-season"),
                                                             dbc.Tab(label="Rolling Correlation", tab_id="tab-corr"),
+                                                            dbc.Tab(label="VaR Scaling", tab_id="tab-var"),
                                                         ],
                                                     ),
                                                 ],
                                             ),
                                             html.Div(
+                                                id="custom-graph-wrapper",
                                                 className="custom-graph-wrapper mt-2",
                                                 children=[
                                                     dcc.Graph(
@@ -402,6 +455,46 @@ def build_layout(strategy_names: List[str], default_strategy: str, products: Lis
                                                         className="graph",
                                                         clear_on_unhover=True,
                                                     )
+                                                ],
+                                            ),
+                                            html.Div(
+                                                id="var-summary-wrapper",
+                                                className="var-summary-wrapper mt-2",
+                                                style={"display": "none"},
+                                                children=[
+                                                    html.Div(id="var-notice", className="var-notice"),
+                                                    html.Div(
+                                                        className="metrics-table-wrapper var-summary-table-wrapper",
+                                                        children=[
+                                                            dash_table.DataTable(
+                                                                id="var-summary-table",
+                                                                columns=[],
+                                                                data=[],
+                                                                style_as_list_view=True,
+                                                                fill_width=True,
+                                                                style_table={
+                                                                    "maxHeight": "100%",
+                                                                    "minHeight": "0",
+                                                                    "width": "100%",
+                                                                    "overflowY": "auto",
+                                                                    "overflowX": "auto",
+                                                                    "border": "0px",
+                                                                    "borderRadius": "14px",
+                                                                },
+                                                                style_cell=metrics_cell_style(),
+                                                                style_header=metrics_header_style(),
+                                                                page_action="none",
+                                                            )
+                                                        ],
+                                                    ),
+                                                    dbc.Button(
+                                                        "Configure VaR…",
+                                                        id="btn-var-open-from-tab",
+                                                        color="secondary",
+                                                        outline=True,
+                                                        className="settings-option-btn var-configure-btn",
+                                                        n_clicks=0,
+                                                    ),
                                                 ],
                                             ),
                                         ],
@@ -525,20 +618,7 @@ def build_layout(strategy_names: List[str], default_strategy: str, products: Lis
                                                             "border": "0px",
                                                             "borderRadius": "14px",
                                                         },
-                                                        style_cell={
-                                                            "backgroundColor": "rgba(0,0,0,0)",
-                                                            "color": "#e6e6e6",
-                                                            "border": "0px",
-                                                            "fontFamily": "'Inter', 'Segoe UI', system-ui",
-                                                            "fontSize": "13px",
-                                                            "padding": "10px 12px",
-                                                            "textAlign": "right",
-                                                            "whiteSpace": "normal",
-                                                            "height": "auto",
-                                                            "minWidth": "120px",
-                                                            "width": "auto",
-                                                            "maxWidth": "none",
-                                                        },
+                                                        style_cell=metrics_cell_style(),
                                                         style_cell_conditional=[
                                                             {
                                                                 "if": {"column_id": "Metric"},
@@ -566,19 +646,7 @@ def build_layout(strategy_names: List[str], default_strategy: str, products: Lis
                                                                 "boxShadow": "none",
                                                             },
                                                         ],
-                                                        style_header={
-                                                            "backgroundColor": "rgba(255,255,255,0.03)",
-                                                            "color": "#ffffff",
-                                                            "border": "0px",
-                                                            "fontWeight": "700",
-                                                            "fontFamily": "'Inter', 'Segoe UI', system-ui",
-                                                            "fontSize": "13px",
-                                                            "textTransform": "none",
-                                                            "letterSpacing": "0.2px",
-                                                            "textAlign": "right",
-                                                            "whiteSpace": "normal",
-                                                            "lineHeight": "1.2",
-                                                        },
+                                                        style_header=metrics_header_style(),
                                                         style_header_conditional=[
                                                             {"if": {"column_id": "Metric"}, "textAlign": "left"},
                                                         ],
@@ -736,20 +804,7 @@ def build_layout(strategy_names: List[str], default_strategy: str, products: Lis
                                                     "border": "0px",
                                                     "borderRadius": "18px",
                                                 },
-                                                style_cell={
-                                                    "backgroundColor": "rgba(0,0,0,0)",
-                                                    "color": "#e6e6e6",
-                                                    "border": "0px",
-                                                    "fontFamily": "'Inter', 'Segoe UI', system-ui",
-                                                    "fontSize": "13px",
-                                                    "padding": "12px 14px",
-                                                    "textAlign": "right",
-                                                    "whiteSpace": "normal",
-                                                    "height": "auto",
-                                                    "minWidth": "140px",
-                                                    "width": "auto",
-                                                    "maxWidth": "none",
-                                                },
+                                                style_cell=metrics_cell_style(padding="12px 14px", min_width="140px"),
                                                 style_cell_conditional=[
                                                     {
                                                         "if": {"column_id": "Metric"},
@@ -777,19 +832,7 @@ def build_layout(strategy_names: List[str], default_strategy: str, products: Lis
                                                         "boxShadow": "none",
                                                     },
                                                 ],
-                                                style_header={
-                                                    "backgroundColor": "rgba(255,255,255,0.05)",
-                                                    "color": "#ffffff",
-                                                    "border": "0px",
-                                                    "fontWeight": "700",
-                                                    "fontFamily": "'Inter', 'Segoe UI', system-ui",
-                                                    "fontSize": "13px",
-                                                    "textTransform": "none",
-                                                    "letterSpacing": "0.2px",
-                                                    "textAlign": "right",
-                                                    "whiteSpace": "normal",
-                                                    "lineHeight": "1.2",
-                                                },
+                                                style_header=metrics_header_style(header_bg_dark="rgba(255,255,255,0.05)"),
                                                 style_header_conditional=[
                                                     {"if": {"column_id": "Metric"}, "textAlign": "left"},
                                                 ],
@@ -904,20 +947,7 @@ def build_layout(strategy_names: List[str], default_strategy: str, products: Lis
                                                     "border": "0px",
                                                     "borderRadius": "14px",
                                                 },
-                                                style_cell={
-                                                    "backgroundColor": "rgba(0,0,0,0)",
-                                                    "color": "#e6e6e6",
-                                                    "border": "0px",
-                                                    "fontFamily": "'Inter', 'Segoe UI', system-ui",
-                                                    "fontSize": "13px",
-                                                    "padding": "10px 12px",
-                                                    "textAlign": "right",
-                                                    "whiteSpace": "normal",
-                                                    "height": "auto",
-                                                    "minWidth": "120px",
-                                                    "width": "auto",
-                                                    "maxWidth": "none",
-                                                },
+                                                style_cell=metrics_cell_style(),
                                                 style_cell_conditional=[
                                                     {
                                                         "if": {"column_id": "Date"},
@@ -943,22 +973,173 @@ def build_layout(strategy_names: List[str], default_strategy: str, products: Lis
                                                         "boxShadow": "none",
                                                     },
                                                 ],
-                                                style_header={
-                                                    "backgroundColor": "rgba(255,255,255,0.03)",
-                                                    "color": "#ffffff",
-                                                    "border": "0px",
-                                                    "fontWeight": "700",
-                                                    "fontFamily": "'Inter', 'Segoe UI', system-ui",
-                                                    "fontSize": "13px",
-                                                    "textTransform": "none",
-                                                    "letterSpacing": "0.2px",
-                                                    "textAlign": "right",
-                                                    "whiteSpace": "normal",
-                                                    "lineHeight": "1.2",
-                                                },
+                                                style_header=metrics_header_style(),
                                                 style_header_conditional=[
                                                     {"if": {"column_id": "Date"}, "textAlign": "left"},
                                                 ],
+                                                page_action="none",
+                                            )
+                                        ],
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+            # ---- VaR Scaling: configuration popup ----
+            html.Div(
+                id="var-modal-overlay",
+                className="var-modal-overlay",
+                children=[
+                    html.Div(id="var-modal-backdrop", className="modal-backdrop", n_clicks=0),
+                    html.Div(
+                        className="var-modal",
+                        children=[
+                            html.Div(
+                                className="var-modal-header",
+                                children=[
+                                    html.Div("VaR Scaling", id="var-modal-title", className="fw-semibold"),
+                                    dbc.Button(
+                                        "×",
+                                        id="close-var-modal",
+                                        color="secondary",
+                                        outline=True,
+                                        className="custom-analytics-close-btn",
+                                        n_clicks=0,
+                                        size="sm",
+                                    ),
+                                ],
+                            ),
+                            html.Div(
+                                className="var-modal-body",
+                                children=[
+                                    html.Div(
+                                        "Size each product so its daily 95% VaR matches its share of "
+                                        "the total budget. Sizing uses VaR ÷ (1.645 × 20-day return σ).",
+                                        className="var-modal-subtitle",
+                                    ),
+                                    html.Div(
+                                        className="var-total-group",
+                                        children=[
+                                            html.Label("Total VaR Allocation", className="var-total-label"),
+                                            # Input is rendered here (seeded per strategy) to keep the
+                                            # config<->value sync acyclic.
+                                            html.Div(id="var-total-container", className="var-total-container"),
+                                            html.Span("", id="var-total-error", className="var-total-error"),
+                                        ],
+                                    ),
+                                    html.Div("Allocation by product", className="var-section-label"),
+                                    html.Div(id="var-alloc-rows", className="var-alloc-rows"),
+                                    html.Div(id="var-alloc-total", className="var-alloc-total"),
+                                    html.Div(id="var-validation-msg", className="var-validation-msg"),
+                                    html.Div(
+                                        className="var-modal-actions",
+                                        children=[
+                                            dbc.Button(
+                                                "Equal weight",
+                                                id="btn-var-equal",
+                                                color="secondary",
+                                                outline=True,
+                                                className="var-action-btn",
+                                                n_clicks=0,
+                                                size="sm",
+                                            ),
+                                            dbc.Button(
+                                                "Normalize to 100%",
+                                                id="btn-var-normalize",
+                                                color="secondary",
+                                                outline=True,
+                                                className="var-action-btn",
+                                                n_clicks=0,
+                                                size="sm",
+                                            ),
+                                            dbc.Button(
+                                                "Reset",
+                                                id="btn-var-reset",
+                                                color="secondary",
+                                                outline=True,
+                                                className="var-action-btn",
+                                                n_clicks=0,
+                                                size="sm",
+                                            ),
+                                            dbc.Button(
+                                                "Apply",
+                                                id="btn-var-apply",
+                                                color="primary",
+                                                className="var-apply-btn",
+                                                n_clicks=0,
+                                                size="sm",
+                                                disabled=True,
+                                            ),
+                                        ],
+                                    ),
+                                    html.Div(
+                                        className="var-active-row",
+                                        children=[
+                                            # Switch is rendered here (seeded per strategy) to keep the
+                                            # config<->value sync acyclic.
+                                            html.Div(id="var-switch-container", className="var-switch-container"),
+                                        ],
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+            # ---- VaR Scaling: full-screen results popup ----
+            html.Div(
+                id="var-expand-overlay",
+                className="var-expand-overlay",
+                children=[
+                    html.Div(id="var-expand-backdrop", className="modal-backdrop", n_clicks=0),
+                    html.Div(
+                        className="var-expand-modal",
+                        children=[
+                            html.Div(
+                                className="var-expand-modal-header",
+                                children=[
+                                    html.Div(
+                                        "VaR Scaling — Results",
+                                        id="var-expand-title",
+                                        className="fw-semibold",
+                                    ),
+                                    dbc.Button(
+                                        "×",
+                                        id="close-var-expand-modal",
+                                        color="secondary",
+                                        outline=True,
+                                        className="custom-analytics-close-btn",
+                                        n_clicks=0,
+                                        size="sm",
+                                    ),
+                                ],
+                            ),
+                            html.Div(
+                                className="var-expand-modal-body",
+                                children=[
+                                    html.Div(id="var-expand-notice", className="var-notice"),
+                                    html.Div(
+                                        className="metrics-table-wrapper var-summary-table-wrapper",
+                                        children=[
+                                            dash_table.DataTable(
+                                                id="var-expand-table",
+                                                columns=[],
+                                                data=[],
+                                                style_as_list_view=True,
+                                                fill_width=True,
+                                                style_table={
+                                                    "maxHeight": "100%",
+                                                    "minHeight": "0",
+                                                    "width": "100%",
+                                                    "overflowY": "auto",
+                                                    "overflowX": "auto",
+                                                    "border": "0px",
+                                                    "borderRadius": "18px",
+                                                },
+                                                style_cell=metrics_cell_style(padding="12px 14px", min_width="140px"),
+                                                style_header=metrics_header_style(header_bg_dark="rgba(255,255,255,0.05)"),
                                                 page_action="none",
                                             )
                                         ],

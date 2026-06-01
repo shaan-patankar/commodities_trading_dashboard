@@ -5,10 +5,12 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
+import logging
+
 import pandas as pd
 import pytest
 
-from dashboard.data import products_for_strategy, read_strategy_csv
+from dashboard.data import load_strategies, products_for_strategy, read_strategy_csv
 
 
 class TestReadStrategyCsv:
@@ -57,6 +59,35 @@ class TestReadStrategyCsv:
         csv_path.write_text("date,product_a\n2024-01-01,100\nnot-a-date,200\n2024-01-02,300\n")
         df = read_strategy_csv(csv_path)
         assert len(df) == 2
+
+
+class TestLoadStrategies:
+    def test_loads_valid_files(self, tmp_path):
+        p = tmp_path / "s.csv"
+        p.write_text("date,product_a\n2024-01-01,100\n2024-01-02,150\n")
+        result = load_strategies({"S": p}, logging.getLogger("test"))
+        assert "S" in result
+        assert len(result["S"]) == 2
+
+    def test_skips_missing_file(self, tmp_path):
+        result = load_strategies({"Gone": tmp_path / "nope.csv"}, logging.getLogger("test"))
+        assert result == {}
+
+    def test_skips_unparseable_csv(self, tmp_path):
+        good = tmp_path / "good.csv"
+        good.write_text("date,product_a\n2024-01-01,100\n")
+        bad = tmp_path / "bad.csv"
+        # Ragged rows raise pandas ParserError -> must be skipped, not crash.
+        bad.write_text('date,product_a\n2024-01-01,1,2,3,4\n"unterminated\n')
+        result = load_strategies({"Good": good, "Bad": bad}, logging.getLogger("test"))
+        assert "Good" in result
+        assert "Bad" not in result
+
+    def test_skips_file_without_date_column(self, tmp_path):
+        p = tmp_path / "nodate.csv"
+        p.write_text("foo,bar\n1,2\n")
+        result = load_strategies({"NoDate": p}, logging.getLogger("test"))
+        assert result == {}
 
 
 class TestProductsForStrategy:

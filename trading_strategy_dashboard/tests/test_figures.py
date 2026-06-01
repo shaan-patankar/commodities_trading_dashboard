@@ -7,7 +7,11 @@ import pytest
 
 from dashboard.analytics import SeriesPack, compute_series
 from dashboard.config import DEFAULT_INITIAL_CAPITAL
+import numpy as np
+import pandas as pd
+
 from dashboard.figures import (
+    decimate,
     drawdown_figure,
     equity_figure,
     placeholder_figure,
@@ -15,6 +19,33 @@ from dashboard.figures import (
     rolling_sharpe_figure,
     seasonality_figure,
 )
+
+
+class TestDecimate:
+    def test_small_series_unchanged(self):
+        x = pd.Series(pd.date_range("2024-01-01", periods=10))
+        y = pd.Series(range(10), dtype="float64")
+        dx, dy = decimate(x, y, max_points=1500)
+        assert dx is x and dy is y  # returned as-is
+
+    def test_large_series_reduced(self):
+        n = 5000
+        x = pd.Series(pd.date_range("2010-01-01", periods=n))
+        y = pd.Series(np.random.default_rng(0).normal(size=n))
+        dx, dy = decimate(x, y, max_points=1000)
+        assert len(dx) == len(dy)
+        assert len(dy) <= 1002  # ~max_points (2 per bucket) + endpoints
+        assert len(dy) < n // 2  # meaningfully reduced
+
+    def test_preserves_global_extremes(self):
+        n = 4000
+        x = pd.Series(pd.date_range("2010-01-01", periods=n))
+        y = np.zeros(n)
+        y[1234] = 99.0   # spike up
+        y[2500] = -55.0  # spike down
+        dx, dy = decimate(x, pd.Series(y), max_points=800)
+        assert dy.max() == 99.0
+        assert dy.min() == -55.0
 
 
 class TestEquityFigure:
@@ -66,6 +97,16 @@ class TestRollingSharpe:
             include_individuals=True, include_aggregate=False,
         )
         assert isinstance(fig, go.Figure)
+
+    def test_aggregate_trace_has_color(self, sample_df):
+        """The 'ALL (agg)' trace must have a non-None line color (A5 guard)."""
+        fig = rolling_sharpe_figure(
+            sample_df, ["product_a", "product_b"], DEFAULT_INITIAL_CAPITAL, 60, "Sharpe",
+            include_individuals=False, include_aggregate=True,
+        )
+        agg = [t for t in fig.data if t.name == "ALL (agg)"]
+        assert len(agg) == 1
+        assert agg[0].line.color is not None
 
 
 class TestSeasonalityFigure:

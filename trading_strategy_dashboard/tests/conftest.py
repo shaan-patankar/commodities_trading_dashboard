@@ -67,6 +67,30 @@ def sample_series_pack(sample_df) -> SeriesPack:
 
 
 @pytest.fixture
+def sample_strategy_df(daily_dates) -> pd.DataFrame:
+    """Strategy PnL frame with two named products (mirrors a real strategy CSV)."""
+    rng = np.random.default_rng(123)
+    n = len(daily_dates)
+    return pd.DataFrame({
+        "date": daily_dates,
+        "Brent_M3": rng.normal(100, 500, n),
+        "Gasoil_M3": rng.normal(80, 400, n),
+    })
+
+
+@pytest.fixture
+def sample_returns_df(daily_dates) -> pd.DataFrame:
+    """Daily-returns frame aligned to sample_strategy_df (fractional returns)."""
+    rng = np.random.default_rng(321)
+    n = len(daily_dates)
+    return pd.DataFrame({
+        "date": daily_dates,
+        "Brent_M3": rng.normal(0.0, 0.012, n),
+        "Gasoil_M3": rng.normal(0.0, 0.009, n),
+    })
+
+
+@pytest.fixture
 def empty_df() -> pd.DataFrame:
     return pd.DataFrame({"date": pd.Series(dtype="datetime64[ns]"), "product_a": pd.Series(dtype="float64")})
 

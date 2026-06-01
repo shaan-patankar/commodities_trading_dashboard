@@ -8,6 +8,7 @@ all figures and metric tables in response to user input.
 
 from __future__ import annotations
 
+import json
 from typing import Dict, List, Tuple
 
 import dash
@@ -24,6 +25,7 @@ from dashboard.analytics import (
     range_cycle_label,
 )
 from dashboard.config import BASE_FONT, DEFAULT_INITIAL_CAPITAL, DEFAULT_RF, DEFAULT_ROLL_WINDOW, PANEL_KEYS
+from dashboard.table_styles import metrics_cell_style, metrics_header_style
 from dashboard.data import portfolio_dataframe, products_for_strategy
 from dashboard.figures import (
     drawdown_figure,
@@ -34,11 +36,62 @@ from dashboard.figures import (
     seasonality_figure,
 )
 from dashboard.utils import format_product_label
+from dashboard.var_callbacks import register_var_callbacks
+from dashboard.var_scaling import (
+    compute_var_scaled_frame,
+    portfolio_effective_dataframe,
+    validate_var_config,
+)
 
 
 # ---------------------------------------------------------------------------
 # Metrics-table builders
 # ---------------------------------------------------------------------------
+
+def _build_metric_rows(
+    df: pd.DataFrame,
+    display_columns: List[Tuple[str, List[str]]],
+    empty_label: str,
+) -> Tuple[List[dict], List[dict]]:
+    """Shared core for the metrics DataTables.
+
+    Computes one metrics column per ``(label, columns)`` entry and pivots them
+    into row-per-metric form.  When *display_columns* is empty (nothing
+    selected), returns a single informational row instead of a silent blank.
+
+    Args:
+        df:              Source DataFrame with ``"date"`` and value columns.
+        display_columns: Ordered ``(column_label, source_columns)`` pairs.
+        empty_label:     Message shown when no columns are selected.
+
+    Returns:
+        ``(columns, rows)`` tuple suitable for a ``dash_table.DataTable``.
+    """
+    if not display_columns:
+        return (
+            [{"name": "Metric", "id": "Metric"}, {"name": "", "id": "Value"}],
+            [{"Metric": empty_label, "Value": "—"}],
+        )
+
+    columns = [{"name": "Metric", "id": "Metric"}] + [
+        {"name": label, "id": label} for label, _ in display_columns
+    ]
+
+    metrics_by_column: Dict[str, List[dict]] = {}
+    for label, source_columns in display_columns:
+        sp = compute_series(df, source_columns, DEFAULT_INITIAL_CAPITAL)
+        metrics_by_column[label] = compute_metrics(sp, rf_annual=DEFAULT_RF)
+
+    metric_order = [row["Metric"] for row in next(iter(metrics_by_column.values()), [])]
+    rows: List[dict] = []
+    for metric in metric_order:
+        row = {"Metric": metric}
+        for label, metrics in metrics_by_column.items():
+            row[label] = next((r["Value"] for r in metrics if r["Metric"] == metric), "—")
+        rows.append(row)
+
+    return columns, rows
+
 
 def build_metrics_table(
     df: pd.DataFrame,
@@ -63,25 +116,7 @@ def build_metrics_table(
     else:
         display_columns = [(format_product_label(p), [p]) for p in selected_products if p in all_products]
 
-    columns = [{"name": "Metric", "id": "Metric"}] + [
-        {"name": label, "id": label} for label, _ in display_columns
-    ]
-
-    metrics_by_column: Dict[str, List[dict]] = {}
-    for label, product_list in display_columns:
-        sp = compute_series(df, product_list, DEFAULT_INITIAL_CAPITAL)
-        metrics_by_column[label] = compute_metrics(sp, rf_annual=DEFAULT_RF)
-
-    metric_order = [row["Metric"] for row in next(iter(metrics_by_column.values()), [])]
-    rows: List[dict] = []
-    for metric in metric_order:
-        row = {"Metric": metric}
-        for label, metrics in metrics_by_column.items():
-            value = next((r["Value"] for r in metrics if r["Metric"] == metric), "—")
-            row[label] = value
-        rows.append(row)
-
-    return columns, rows
+    return _build_metric_rows(df, display_columns, empty_label="No products selected")
 
 
 def build_portfolio_metrics_table(
@@ -103,34 +138,18 @@ def build_portfolio_metrics_table(
         ``(columns, rows)`` tuple suitable for a ``dash_table.DataTable``.
     """
     if "ALL" in selected_strategies:
-        display_strategies = all_strategies
         display_columns = [("All Strategies", all_strategies)]
     else:
-        display_strategies = [s for s in selected_strategies if s in all_strategies]
-        display_columns = [(s, [s]) for s in display_strategies]
+        display_columns = [(s, [s]) for s in selected_strategies if s in all_strategies]
 
-    columns = [{"name": "Metric", "id": "Metric"}] + [
-        {"name": label, "id": label} for label, _ in display_columns
-    ]
-
-    metrics_by_column: Dict[str, List[dict]] = {}
-    for label, strategy_list in display_columns:
-        sp = compute_series(portfolio_df, strategy_list, DEFAULT_INITIAL_CAPITAL)
-        metrics_by_column[label] = compute_metrics(sp, rf_annual=DEFAULT_RF)
-
-    metric_order = [row["Metric"] for row in next(iter(metrics_by_column.values()), [])]
-    rows: List[dict] = []
-    for metric in metric_order:
-        row = {"Metric": metric}
-        for label, metrics in metrics_by_column.items():
-            value = next((r["Value"] for r in metrics if r["Metric"] == metric), "—")
-            row[label] = value
-        rows.append(row)
-
-    return columns, rows
+    return _build_metric_rows(portfolio_df, display_columns, empty_label="No strategies selected")
 
 
-def register_callbacks(app: dash.Dash, strategies: Dict[str, pd.DataFrame]) -> None:
+def register_callbacks(
+    app: dash.Dash,
+    strategies: Dict[str, pd.DataFrame],
+    returns: Dict[str, pd.DataFrame] | None = None,
+) -> None:
     """Register all Dash callbacks on the given app instance.
 
     This is the central wiring function that connects every UI control to
@@ -145,11 +164,18 @@ def register_callbacks(app: dash.Dash, strategies: Dict[str, pd.DataFrame]) -> N
     * Strategy and product selection
     * The main ``update_dashboard`` callback that recomputes all figures
 
+    VaR-scaling callbacks are registered separately via
+    :func:`dashboard.var_callbacks.register_var_callbacks`.
+
     Args:
         app:        The Dash application instance.
         strategies: Mapping of strategy name to its loaded PnL DataFrame.
+        returns:    Optional mapping of strategy name to its daily-returns
+                    DataFrame (for VaR scaling). Absent strategies simply have
+                    VaR scaling unavailable.
     """
     strategy_names = list(strategies.keys())
+    returns = returns or {}
 
     def default_strategy_name() -> str:
         """Return the default strategy key shown on initial load."""
@@ -297,6 +323,8 @@ def register_callbacks(app: dash.Dash, strategies: Dict[str, pd.DataFrame]) -> N
         Input("store-custom-analytics-modal-open", "data"),
         Input("store-csv-modal-open", "data"),
         Input("store-theme", "data"),
+        Input("store-var-modal-open", "data"),
+        Input("store-var-expand-open", "data"),
     )
     def dim_background(
         is_open,
@@ -307,6 +335,8 @@ def register_callbacks(app: dash.Dash, strategies: Dict[str, pd.DataFrame]) -> N
         custom_analytics_open,
         csv_modal_open,
         theme,
+        var_modal_open,
+        var_expand_open,
     ):
         """Build the root element CSS class list based on active state."""
         base_class = "app-root"
@@ -325,6 +355,10 @@ def register_callbacks(app: dash.Dash, strategies: Dict[str, pd.DataFrame]) -> N
             classes.append("custom-analytics-visible")
         if csv_modal_open:
             classes.append("csv-modal-visible")
+        if var_modal_open:
+            classes.append("var-modal-visible")
+        if var_expand_open:
+            classes.append("var-expand-visible")
         return " ".join(classes)
 
     # ================================================================
@@ -366,6 +400,31 @@ def register_callbacks(app: dash.Dash, strategies: Dict[str, pd.DataFrame]) -> N
             classes.append("settings-option-btn active" if is_active else "settings-option-btn")
             outlines.append(not is_active)
         return classes, outlines
+
+    @app.callback(
+        Output("metrics-table", "style_cell"),
+        Output("metrics-table", "style_header"),
+        Output("metrics-modal-table", "style_cell"),
+        Output("metrics-modal-table", "style_header"),
+        Output("csv-modal-table", "style_cell"),
+        Output("csv-modal-table", "style_header"),
+        Input("store-theme", "data"),
+    )
+    def theme_table_styles(theme):
+        """Recolour DataTable text/headers per theme.
+
+        DataTable inline styles beat CSS, so light-mode legibility is driven here
+        rather than via fragile ``!important`` overrides. Dark output is identical
+        to the original inline dicts.
+        """
+        return (
+            metrics_cell_style(theme),
+            metrics_header_style(theme),
+            metrics_cell_style(theme, padding="12px 14px", min_width="140px"),
+            metrics_header_style(theme, header_bg_dark="rgba(255,255,255,0.05)"),
+            metrics_cell_style(theme),
+            metrics_header_style(theme),
+        )
 
     # ================================================================
     # Panel visibility and layout mode
@@ -519,33 +578,32 @@ def register_callbacks(app: dash.Dash, strategies: Dict[str, pd.DataFrame]) -> N
         if trig_id == "btn-reset-layout":
             return ("All", "All", "All", "All", "All", "All", "All", "All", "All Panels: All")
 
+        # Only write the store(s) that actually changed -- returning ``no_update``
+        # for the rest prevents Dash from re-firing every panel's figure callback
+        # when a single panel's range is cycled (the main source of UI lag).
+        nu = dash.no_update
         if trig_id == "equity-range-btn":
             equity_range = next_range_key(equity_range)
-        elif trig_id == "drawdown-range-btn":
+            label = range_cycle_label(equity_range, drawdown_range, metrics_range, custom_range)
+            return (equity_range, equity_range, nu, nu, nu, nu, nu, nu, label)
+        if trig_id == "drawdown-range-btn":
             drawdown_range = next_range_key(drawdown_range)
-        elif trig_id == "metrics-range-btn":
+            label = range_cycle_label(equity_range, drawdown_range, metrics_range, custom_range)
+            return (nu, nu, drawdown_range, drawdown_range, nu, nu, nu, nu, label)
+        if trig_id == "metrics-range-btn":
             metrics_range = next_range_key(metrics_range)
-        elif trig_id == "custom-range-btn":
+            label = range_cycle_label(equity_range, drawdown_range, metrics_range, custom_range)
+            return (nu, nu, nu, nu, metrics_range, metrics_range, nu, nu, label)
+        if trig_id == "custom-range-btn":
             custom_range = next_range_key(custom_range)
-        elif trig_id == "btn-cycle-range":
-            next_range = next_range_key(equity_range)
-            equity_range = next_range
-            drawdown_range = next_range
-            metrics_range = next_range
-            custom_range = next_range
+            label = range_cycle_label(equity_range, drawdown_range, metrics_range, custom_range)
+            return (nu, nu, nu, nu, nu, nu, custom_range, custom_range, label)
+        if trig_id == "btn-cycle-range":
+            r = next_range_key(equity_range)
+            label = range_cycle_label(r, r, r, r)
+            return (r, r, r, r, r, r, r, r, label)
 
-        cycle_label = range_cycle_label(equity_range, drawdown_range, metrics_range, custom_range)
-        return (
-            equity_range or "All",
-            equity_range or "All",
-            drawdown_range or "All",
-            drawdown_range or "All",
-            metrics_range or "All",
-            metrics_range or "All",
-            custom_range or "All",
-            custom_range or "All",
-            cycle_label,
-        )
+        return (nu, nu, nu, nu, nu, nu, nu, nu, nu)
 
     # ================================================================
     # Modal open / close callbacks
@@ -749,13 +807,20 @@ def register_callbacks(app: dash.Dash, strategies: Dict[str, pd.DataFrame]) -> N
         Output("store-selected-strategy", "data"),
         Output("strategy-radio", "value"),
         Output("home-radio", "value"),
+        Output("store-selected-products", "data", allow_duplicate=True),
         Input("strategy-radio", "value"),
         Input("home-radio", "value"),
         Input("btn-reset-layout", "n_clicks"),
         State("store-selected-strategy", "data"),
+        prevent_initial_call=True,
     )
     def set_strategy(strategy, home_strategy, reset_clicks, current):
-        """Synchronise the selected strategy between sidebar radios and store."""
+        """Synchronise the selected strategy between sidebar radios and store.
+
+        Also resets the product selection to ALL *in the same callback* when the
+        strategy changes, so the panel callbacks rebuild once rather than twice
+        (a separate products-reset wave was a major source of lag).
+        """
         ctx = callback_context
         selected = current or default_strategy_name()
         if ctx.triggered:
@@ -769,7 +834,8 @@ def register_callbacks(app: dash.Dash, strategies: Dict[str, pd.DataFrame]) -> N
 
         strategy_value = selected if selected in strategy_names else None
         home_value = "Portfolio" if selected == "Portfolio" else None
-        return selected, strategy_value, home_value
+        products_value = ["ALL"] if selected != current else dash.no_update
+        return selected, strategy_value, home_value, products_value
 
     @app.callback(
         Output("product-buttons", "children"),
@@ -838,28 +904,30 @@ def register_callbacks(app: dash.Dash, strategies: Dict[str, pd.DataFrame]) -> N
     @app.callback(
         Output("store-selected-products", "data"),
         Input({"type": "product-btn", "value": dash.ALL}, "n_clicks"),
-        Input("store-selected-strategy", "data"),
         State({"type": "product-btn", "value": dash.ALL}, "id"),
         State("store-selected-products", "data"),
         prevent_initial_call=True,
     )
-    def set_products(n_clicks_list, strategy, ids, current):
-        """Handle product pill clicks: toggle individual or select ALL."""
-        if strategy not in strategies and strategy != "Portfolio":
-            return ["ALL"]
+    def set_products(n_clicks_list, ids, current):
+        """Handle product pill clicks: toggle individual or select ALL.
 
+        Strategy changes reset products via :func:`set_strategy` (same wave), so
+        this callback only handles genuine pill clicks. Buttons are recreated on
+        every strategy change with ``n_clicks=0``; ignore those non-clicks.
+        """
         ctx = callback_context
         if not ctx.triggered:
-            return current
+            return dash.no_update
+
+        trig = ctx.triggered[0]
+        if not trig.get("value"):  # n_clicks == 0/None -> (re)created, not clicked
+            return dash.no_update
 
         trig_id = ctx.triggered_id
-        if trig_id == "store-selected-strategy":
-            return ["ALL"]
-
         if isinstance(trig_id, dict) and trig_id.get("type") == "product-btn":
             clicked = trig_id.get("value")
         else:
-            return current
+            return dash.no_update
 
         if clicked == "ALL":
             return ["ALL"]
@@ -875,9 +943,109 @@ def register_callbacks(app: dash.Dash, strategies: Dict[str, pd.DataFrame]) -> N
         return sorted(selected)
 
     # ================================================================
-    # Main dashboard update (figures + metrics)
+    # Main dashboard update -- split per panel
+    # ----------------------------------------------------------------
+    # Previously a single callback rebuilt every figure + metrics table on
+    # ANY input change, shipping ~600 KB per interaction. Splitting it so each
+    # panel only recomputes when ITS inputs change means a tab switch or a
+    # single panel's range cycle rebuilds just that panel. A small memo shares
+    # the resolved frame across the panel callbacks, so a strategy/product
+    # change resolves it once rather than five times.
     # ================================================================
 
+    _CAP = DEFAULT_INITIAL_CAPITAL
+    _WIN = DEFAULT_ROLL_WINDOW
+    _resolve_cache: Dict[tuple, dict] = {}
+
+    def _panel_titles(layout_value: str) -> Tuple[str, str, str]:
+        if layout_value == "analytics":
+            return "Rolling Sharpe", "Seasonality", "Rolling Correlation"
+        if layout_value == "focused":
+            return "Equity & Drawdown Curve", "Custom Analytics", "Drawdown"
+        return "Equity Curve", "Custom Analytics", "Drawdown"
+
+    def _resolve_context(strategy, selected_products, var_config) -> dict:
+        """Resolve the frame + grouping for the current selection (memoized).
+
+        Returns a dict describing how to build any panel: the (VaR-aware) frame,
+        the columns to plot, whether to aggregate, labelling, and the header.
+        """
+        key = (strategy, tuple(selected_products or []), json.dumps(var_config or {}, sort_keys=True))
+        cached = _resolve_cache.get(key)
+        if cached is not None:
+            return cached
+
+        if strategy == "Portfolio":
+            sel = selected_products or ["ALL"]
+            all_strategies = [s for s in strategy_names if s in strategies]
+            selected = all_strategies if "ALL" in sel else [s for s in sel if s in strategies]
+            if not selected:
+                selected = all_strategies
+            df, _breakdown = portfolio_effective_dataframe(strategies, returns, selected, var_config, _CAP)
+            ctx = {
+                "empty": df.empty,
+                "is_portfolio": True,
+                "df": df,
+                "cols": selected,
+                "all_cols": all_strategies,
+                "use_agg": "ALL" in sel,
+                "agg_label": "All Strategies",
+                "label_fn": (lambda c: c),
+                "header": "Portfolio",
+                "selected_products": sel,
+            }
+        else:
+            df = strategies.get(strategy)
+            all_products = products_for_strategy(strategies, strategy)
+            sel = selected_products or ["ALL"]
+            var_scaled = False
+            if df is not None:
+                var_cfg = (var_config or {}).get(strategy) or {}
+                returns_df = returns.get(strategy)
+                if bool(var_cfg.get("active")) and returns_df is not None:
+                    verdict = validate_var_config(
+                        var_cfg.get("total_var"), var_cfg.get("allocations", {}), all_products
+                    )
+                    if verdict["ok"]:
+                        scaled_df, _ = compute_var_scaled_frame(
+                            df, returns_df, all_products,
+                            var_cfg.get("total_var"), var_cfg.get("allocations", {}), _CAP,
+                        )
+                        if not scaled_df.empty:
+                            df = scaled_df
+                            all_products = [c for c in scaled_df.columns if c != "date"]
+                            var_scaled = True
+            products = all_products if ("ALL" in sel) else [p for p in sel if p in all_products]
+            ctx = {
+                "empty": df is None,
+                "is_portfolio": False,
+                "df": df,
+                "cols": products,
+                "all_cols": all_products,
+                "use_agg": "ALL" in sel,
+                "agg_label": "All Products",
+                "label_fn": format_product_label,
+                "header": f"{strategy} Trading Strategy" + (" (VaR-scaled)" if var_scaled else ""),
+                "selected_products": sel,
+            }
+
+        if len(_resolve_cache) > 64:
+            _resolve_cache.clear()
+        _resolve_cache[key] = ctx
+        return ctx
+
+    def _series(ctx, range_key):
+        fdf = filter_df_by_range(ctx["df"], range_key)
+        if ctx["use_agg"]:
+            return {ctx["agg_label"]: compute_series(fdf, ctx["cols"], _CAP)}
+        return {ctx["label_fn"](c): compute_series(fdf, [c], _CAP) for c in ctx["cols"]}
+
+    def _finalize(fig, theme):
+        fig.update_layout(autosize=True, margin=dict(l=14, r=14, t=40, b=22))
+        apply_plotly_theme(fig, theme)
+        return fig
+
+    # ---- Panel titles (cheap; no figure work) ----
     @app.callback(
         Output("header-title", "children"),
         Output("equity-panel-title", "children"),
@@ -886,354 +1054,149 @@ def register_callbacks(app: dash.Dash, strategies: Dict[str, pd.DataFrame]) -> N
         Output("equity-modal-title", "children"),
         Output("custom-analytics-modal-title", "children"),
         Output("drawdown-modal-title", "children"),
+        Input("store-selected-strategy", "data"),
+        Input("store-selected-products", "data"),
+        Input("layout-radio", "value"),
+        Input("store-var-config", "data"),
+    )
+    def update_titles(strategy, selected_products, layout_value, var_config):
+        eq_t, cu_t, dd_t = _panel_titles(layout_value or "default")
+        ctx = _resolve_context(strategy, selected_products, var_config)
+        return ctx["header"], eq_t, cu_t, dd_t, eq_t, cu_t, dd_t
+
+    # ---- Equity panel ----
+    @app.callback(
         Output("equity-graph", "figure"),
-        Output("equity-modal-graph", "figure"),
+        Input("store-selected-strategy", "data"),
+        Input("store-selected-products", "data"),
+        Input("layout-radio", "value"),
+        Input("store-equity-range", "data"),
+        Input("store-theme", "data"),
+        Input("store-var-config", "data"),
+    )
+    def update_equity(strategy, selected_products, layout_value, equity_range, theme, var_config):
+        layout_value = layout_value or "default"
+        ctx = _resolve_context(strategy, selected_products, var_config)
+        if ctx["empty"]:
+            return _finalize(
+                placeholder_figure("Portfolio view", "Add your portfolio data to explore performance and analytics."),
+                theme,
+            )
+        if layout_value == "analytics":
+            fdf = filter_df_by_range(ctx["df"], equity_range)
+            fig = rolling_sharpe_figure(
+                fdf, ctx["cols"], _CAP, _WIN, "",
+                include_individuals=not ctx["use_agg"], include_aggregate=ctx["use_agg"],
+            )
+        else:
+            combine = layout_value == "focused"
+            eq_series = _series(ctx, equity_range)
+            dd_series = _series(ctx, equity_range) if combine else None
+            fig = equity_figure(eq_series, "", drawdown_series=dd_series)
+        return _finalize(fig, theme)
+
+    # ---- Drawdown panel ----
+    @app.callback(
         Output("drawdown-graph", "figure"),
-        Output("drawdown-modal-graph", "figure"),
-        Output("metrics-table", "columns"),
-        Output("metrics-table", "data"),
-        Output("metrics-modal-table", "columns"),
-        Output("metrics-modal-table", "data"),
+        Input("store-selected-strategy", "data"),
+        Input("store-selected-products", "data"),
+        Input("layout-radio", "value"),
+        Input("store-drawdown-range", "data"),
+        Input("store-theme", "data"),
+        Input("store-var-config", "data"),
+    )
+    def update_drawdown(strategy, selected_products, layout_value, drawdown_range, theme, var_config):
+        layout_value = layout_value or "default"
+        ctx = _resolve_context(strategy, selected_products, var_config)
+        if ctx["empty"]:
+            return _finalize(placeholder_figure("Drawdowns will display once data is connected."), theme)
+        if layout_value == "analytics":
+            fdf = filter_df_by_range(ctx["df"], drawdown_range)
+            fig = rolling_correlation_figure(fdf, ctx["cols"], _CAP, _WIN, "")
+        else:
+            fig = drawdown_figure(_series(ctx, drawdown_range), "")
+        return _finalize(fig, theme)
+
+    # ---- Custom analytics panel ----
+    @app.callback(
         Output("custom-graph", "figure"),
-        Output("custom-analytics-modal-graph", "figure"),
         Input("store-selected-strategy", "data"),
         Input("store-selected-products", "data"),
         Input("custom-tabs", "active_tab"),
         Input("layout-radio", "value"),
-        Input("store-equity-range", "data"),
-        Input("store-drawdown-range", "data"),
-        Input("store-metrics-range", "data"),
         Input("store-custom-range", "data"),
         Input("store-theme", "data"),
+        Input("store-var-config", "data"),
     )
-    def update_dashboard(
-        strategy,
-        selected_products,
-        active_tab,
-        layout_value,
-        equity_range,
-        drawdown_range,
-        metrics_range,
-        custom_range,
-        theme,
-    ):
-        """Recompute all figures, titles, and metric tables for the dashboard.
-
-        This is the primary callback -- it fires whenever the strategy,
-        product selection, tab, layout mode, date range, or theme changes.
-        It returns 17 outputs covering panel titles, graph figures, and
-        DataTable columns/data for both inline and modal views.
-        """
+    def update_custom(strategy, selected_products, active_tab, layout_value, custom_range, theme, var_config):
         layout_value = layout_value or "default"
-        combine_drawdown = layout_value == "focused"
-        if layout_value == "analytics":
-            equity_title = "Rolling Sharpe"
-            custom_title = "Seasonality"
-            drawdown_title = "Rolling Correlation"
-        elif layout_value == "focused":
-            equity_title = "Equity & Drawdown Curve"
-            custom_title = "Custom Analytics"
-            drawdown_title = "Drawdown"
-        else:
-            equity_title = "Equity Curve"
-            custom_title = "Custom Analytics"
-            drawdown_title = "Drawdown"
-
-        if strategy == "Portfolio":
-            selected_products = selected_products or ["ALL"]
-            all_strategies = [s for s in strategy_names if s in strategies]
-            selected_strategies = (
-                all_strategies if "ALL" in selected_products else [s for s in selected_products if s in strategies]
-            )
-            if not selected_strategies:
-                selected_strategies = all_strategies
-
-            portfolio_df = portfolio_dataframe(strategies, selected_strategies)
-            if portfolio_df.empty:
-                placeholder_title = "Portfolio view"
-                subtitle = "Add your portfolio data to explore performance and analytics."
-                eq_fig = placeholder_figure(placeholder_title, subtitle)
-                dd_fig = placeholder_figure("Drawdowns will display once data is connected.")
-                custom_fig = placeholder_figure("Custom analytics will appear here.")
-                apply_plotly_theme(eq_fig, theme)
-                apply_plotly_theme(dd_fig, theme)
-                apply_plotly_theme(custom_fig, theme)
-                return (
-                    "Portfolio",
-                    equity_title,
-                    custom_title,
-                    drawdown_title,
-                    equity_title,
-                    custom_title,
-                    drawdown_title,
-                    eq_fig,
-                    eq_fig,
-                    dd_fig,
-                    dd_fig,
-                    [],
-                    [],
-                    [],
-                    [],
-                    custom_fig,
-                    custom_fig,
-                )
-
-            equity_df = filter_df_by_range(portfolio_df, equity_range)
-            drawdown_df = filter_df_by_range(portfolio_df, drawdown_range)
-            drawdown_df_for_equity = equity_df if combine_drawdown else drawdown_df
-            metrics_df = filter_df_by_range(portfolio_df, metrics_range)
-            custom_df = filter_df_by_range(portfolio_df, custom_range)
-
-            if "ALL" in selected_products:
-                equity_series = {
-                    "All Strategies": compute_series(
-                        equity_df,
-                        selected_strategies,
-                        DEFAULT_INITIAL_CAPITAL,
-                    )
-                }
-                drawdown_series = {
-                    "All Strategies": compute_series(
-                        drawdown_df,
-                        selected_strategies,
-                        DEFAULT_INITIAL_CAPITAL,
-                    )
-                }
-                equity_drawdown_series = {
-                    "All Strategies": compute_series(
-                        drawdown_df_for_equity,
-                        selected_strategies,
-                        DEFAULT_INITIAL_CAPITAL,
-                    )
-                }
-            else:
-                equity_series = {
-                    s: compute_series(equity_df, [s], DEFAULT_INITIAL_CAPITAL) for s in selected_strategies
-                }
-                drawdown_series = {
-                    s: compute_series(drawdown_df, [s], DEFAULT_INITIAL_CAPITAL) for s in selected_strategies
-                }
-                equity_drawdown_series = {
-                    s: compute_series(drawdown_df_for_equity, [s], DEFAULT_INITIAL_CAPITAL)
-                    for s in selected_strategies
-                }
-
-            eq_fig = equity_figure(
-                equity_series,
-                title="",
-                drawdown_series=equity_drawdown_series if combine_drawdown else None,
-            )
-            dd_fig = drawdown_figure(drawdown_series, title="")
-
-            table_columns, table_data = build_portfolio_metrics_table(
-                selected_products,
-                all_strategies,
-                metrics_df,
-            )
-
-            show_individuals = "ALL" not in selected_products
-            show_aggregate = "ALL" in selected_products
-            if layout_value == "analytics":
-                eq_fig = rolling_sharpe_figure(
-                    equity_df,
-                    selected_strategies,
-                    DEFAULT_INITIAL_CAPITAL,
-                    DEFAULT_ROLL_WINDOW,
-                    title="",
-                    include_individuals=show_individuals,
-                    include_aggregate=show_aggregate,
-                )
-                custom_fig = seasonality_figure(custom_df, selected_strategies, title="")
-                dd_fig = rolling_correlation_figure(
-                    drawdown_df,
-                    selected_strategies,
-                    DEFAULT_INITIAL_CAPITAL,
-                    DEFAULT_ROLL_WINDOW,
-                    title="",
-                )
-            elif active_tab == "tab-roll":
-                custom_fig = rolling_sharpe_figure(
-                    custom_df,
-                    selected_strategies,
-                    DEFAULT_INITIAL_CAPITAL,
-                    DEFAULT_ROLL_WINDOW,
-                    title="",
-                    include_individuals=show_individuals,
-                    include_aggregate=show_aggregate,
-                )
-            elif active_tab == "tab-season":
-                custom_fig = seasonality_figure(custom_df, selected_strategies, title="")
-            else:
-                custom_fig = rolling_correlation_figure(
-                    custom_df,
-                    selected_strategies,
-                    DEFAULT_INITIAL_CAPITAL,
-                    DEFAULT_ROLL_WINDOW,
-                    title="",
-                )
-
-            for fig in [eq_fig, dd_fig, custom_fig]:
-                fig.update_layout(
-                    autosize=True,
-                    margin=dict(l=14, r=14, t=40, b=22),
-                )
-                apply_plotly_theme(fig, theme)
-
-            return (
-                "Portfolio",
-                equity_title,
-                custom_title,
-                drawdown_title,
-                equity_title,
-                custom_title,
-                drawdown_title,
-                eq_fig,
-                eq_fig,
-                dd_fig,
-                dd_fig,
-                table_columns,
-                table_data,
-                table_columns,
-                table_data,
-                custom_fig,
-                custom_fig,
-            )
-
-        df = strategies.get(strategy)
-        all_products = products_for_strategy(strategies, strategy)
-
-        if df is None:
-            placeholder_title = "Portfolio view"
-            subtitle = "Add your portfolio data to explore performance and analytics."
-            eq_fig = placeholder_figure(placeholder_title, subtitle)
-            dd_fig = placeholder_figure("Drawdowns will display once data is connected.")
-            custom_fig = placeholder_figure("Custom analytics will appear here.")
-            apply_plotly_theme(eq_fig, theme)
-            apply_plotly_theme(dd_fig, theme)
-            apply_plotly_theme(custom_fig, theme)
-            return (
-                "Portfolio",
-                equity_title,
-                custom_title,
-                drawdown_title,
-                equity_title,
-                custom_title,
-                drawdown_title,
-                eq_fig,
-                eq_fig,
-                dd_fig,
-                dd_fig,
-                [],
-                [],
-                [],
-                [],
-                custom_fig,
-                custom_fig,
-            )
-
-        selected_products = selected_products or ["ALL"]
-        products = all_products if ("ALL" in selected_products) else [p for p in selected_products if p in all_products]
-
-        equity_df = filter_df_by_range(df, equity_range)
-        drawdown_df = filter_df_by_range(df, drawdown_range)
-        drawdown_df_for_equity = equity_df if combine_drawdown else drawdown_df
-        metrics_df = filter_df_by_range(df, metrics_range)
-        custom_df = filter_df_by_range(df, custom_range)
-
-        if "ALL" in selected_products:
-            equity_series = {"All Products": compute_series(equity_df, products, DEFAULT_INITIAL_CAPITAL)}
-            drawdown_series = {"All Products": compute_series(drawdown_df, products, DEFAULT_INITIAL_CAPITAL)}
-            equity_drawdown_series = {
-                "All Products": compute_series(drawdown_df_for_equity, products, DEFAULT_INITIAL_CAPITAL)
-            }
-        else:
-            equity_series = {
-                format_product_label(p): compute_series(equity_df, [p], DEFAULT_INITIAL_CAPITAL)
-                for p in products
-            }
-            drawdown_series = {
-                format_product_label(p): compute_series(drawdown_df, [p], DEFAULT_INITIAL_CAPITAL)
-                for p in products
-            }
-            equity_drawdown_series = {
-                format_product_label(p): compute_series(drawdown_df_for_equity, [p], DEFAULT_INITIAL_CAPITAL)
-                for p in products
-            }
-        title_text = f"{strategy} Trading Strategy"
-
-        eq_fig = equity_figure(
-            equity_series,
-            title="",
-            drawdown_series=equity_drawdown_series if combine_drawdown else None,
-        )
-        dd_fig = drawdown_figure(drawdown_series, title="")
-
-        table_columns, table_data = build_metrics_table(metrics_df, selected_products, all_products)
-
-        show_individuals = "ALL" not in selected_products
-        show_aggregate = "ALL" in selected_products
-        if layout_value == "analytics":
-            eq_fig = rolling_sharpe_figure(
-                equity_df,
-                products,
-                DEFAULT_INITIAL_CAPITAL,
-                DEFAULT_ROLL_WINDOW,
-                title="",
-                include_individuals=show_individuals,
-                include_aggregate=show_aggregate,
-            )
-            custom_fig = seasonality_figure(custom_df, products, title="")
-            dd_fig = rolling_correlation_figure(
-                drawdown_df,
-                products,
-                DEFAULT_INITIAL_CAPITAL,
-                DEFAULT_ROLL_WINDOW,
-                title="",
-            )
+        ctx = _resolve_context(strategy, selected_products, var_config)
+        if ctx["empty"]:
+            return _finalize(placeholder_figure("Custom analytics will appear here."), theme)
+        # On the VaR tab the graph is hidden (summary table shown) -> skip the heavy build.
+        if active_tab == "tab-var" and layout_value != "analytics":
+            return _finalize(placeholder_figure("VaR Scaling", "Configure VaR scaling for this strategy."), theme)
+        fdf = filter_df_by_range(ctx["df"], custom_range)
+        if layout_value == "analytics" or active_tab == "tab-season":
+            fig = seasonality_figure(fdf, ctx["cols"], "")
         elif active_tab == "tab-roll":
-            custom_fig = rolling_sharpe_figure(
-                custom_df,
-                products,
-                DEFAULT_INITIAL_CAPITAL,
-                DEFAULT_ROLL_WINDOW,
-                title="",
-                include_individuals=show_individuals,
-                include_aggregate=show_aggregate,
+            fig = rolling_sharpe_figure(
+                fdf, ctx["cols"], _CAP, _WIN, "",
+                include_individuals=not ctx["use_agg"], include_aggregate=ctx["use_agg"],
             )
-        elif active_tab == "tab-season":
-            custom_fig = seasonality_figure(custom_df, products, title="")
+        else:  # tab-corr
+            fig = rolling_correlation_figure(fdf, ctx["cols"], _CAP, _WIN, "")
+        return _finalize(fig, theme)
+
+    # ---- Key metrics (inline + modal share the same data) ----
+    @app.callback(
+        Output("metrics-table", "columns"),
+        Output("metrics-table", "data"),
+        Output("metrics-modal-table", "columns"),
+        Output("metrics-modal-table", "data"),
+        Input("store-selected-strategy", "data"),
+        Input("store-selected-products", "data"),
+        Input("store-metrics-range", "data"),
+        Input("store-var-config", "data"),
+    )
+    def update_metrics(strategy, selected_products, metrics_range, var_config):
+        ctx = _resolve_context(strategy, selected_products, var_config)
+        if ctx["empty"]:
+            return [], [], [], []
+        fdf = filter_df_by_range(ctx["df"], metrics_range)
+        if ctx["is_portfolio"]:
+            cols, data = build_portfolio_metrics_table(ctx["selected_products"], ctx["all_cols"], fdf)
         else:
-            custom_fig = rolling_correlation_figure(
-                custom_df,
-                products,
-                DEFAULT_INITIAL_CAPITAL,
-                DEFAULT_ROLL_WINDOW,
-                title="",
-            )
+            cols, data = build_metrics_table(fdf, ctx["selected_products"], ctx["all_cols"])
+        return cols, data, cols, data
 
-        for fig in [eq_fig, dd_fig, custom_fig]:
-            fig.update_layout(
-                autosize=True,
-                margin=dict(l=14, r=14, t=40, b=22),
-            )
-            apply_plotly_theme(fig, theme)
 
-        return (
-            title_text,
-            equity_title,
-            custom_title,
-            drawdown_title,
-            equity_title,
-            custom_title,
-            drawdown_title,
-            eq_fig,
-            eq_fig,
-            dd_fig,
-            dd_fig,
-            table_columns,
-            table_data,
-            table_columns,
-            table_data,
-            custom_fig,
-            custom_fig,
+    # ================================================================
+    # Lazy modal-graph population
+    # ----------------------------------------------------------------
+    # The expand modals mirror the inline graphs. Rendering all three
+    # (Plotly) modal graphs on every dashboard update doubled the render
+    # cost for no benefit while they were closed. The dashboard controls
+    # are blocked while a modal is open (backdrop), so the inline figure
+    # cannot change mid-view -- copying the figure once on open is enough.
+    # ================================================================
+
+    def _mirror_on_open(modal_store_id: str, source_graph_id: str, target_graph_id: str) -> None:
+        @app.callback(
+            Output(target_graph_id, "figure"),
+            Input(modal_store_id, "data"),
+            State(source_graph_id, "figure"),
+            prevent_initial_call=True,
         )
+        def _mirror(is_open, figure):
+            return figure if is_open else dash.no_update
+
+    _mirror_on_open("store-equity-modal-open", "equity-graph", "equity-modal-graph")
+    _mirror_on_open("store-drawdown-modal-open", "drawdown-graph", "drawdown-modal-graph")
+    _mirror_on_open("store-custom-analytics-modal-open", "custom-graph", "custom-analytics-modal-graph")
+
+    # ================================================================
+    # VaR scaling callbacks (modals, validation, per-strategy memory,
+    # summary tables) -- registered from a dedicated module.
+    # ================================================================
+    register_var_callbacks(app, strategies, returns)

@@ -1,0 +1,10 @@
+{
+  "tests/test_data.py::TestReadStrategyCsv": true,
+  "tests/test_data.py::TestProductsForStrategy": true,
+  "tests/test_figures.py::TestEquityFigure": true,
+  "tests/test_figures.py::TestDrawdownFigure": true,
+  "tests/test_figures.py::TestRollingCorrelationFigure": true,
+  "tests/test_figures.py::TestRollingSharpe": true,
+  "tests/test_figures.py::TestSeasonalityFigure": true,
+  "tests/test_figures.py::TestPlaceholderFigure": true
+}

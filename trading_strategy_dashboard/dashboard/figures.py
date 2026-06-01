@@ -29,7 +29,7 @@ from dashboard.analytics import (
     padded_date_range,
 )
 from dashboard.config import BASE_BACKGROUND, BASE_FONT, BASE_HOVERLABEL, DEFAULT_INITIAL_CAPITAL
-from dashboard.utils import format_product_label
+from dashboard.utils import format_product_label, valid_product_columns
 
 
 # ---------------------------------------------------------------------------
@@ -93,6 +93,44 @@ def with_alpha(hex_color: str, alpha: float) -> str:
     return f"rgba({r},{g},{b},{alpha})"
 
 
+def decimate(x, y, max_points: int = 1000):
+    """Downsample ``(x, y)`` for *display only*, preserving visual extremes.
+
+    Plotting ~2,600+ daily points per SVG trace across several charts is the
+    main source of UI lag (this browser has no WebGL fallback). Using min/max
+    decimation -- keeping the smallest and largest sample of each contiguous
+    bucket -- the point count drops to ~``max_points`` while spikes and troughs
+    survive intact. Returns the inputs unchanged when already small enough.
+    Never used for analytics/metrics -- only for plotted traces.
+
+    Args:
+        x:          Sequence of x values (dates).
+        y:          Sequence of numeric y values.
+        max_points: Approximate target number of plotted points (~2 per bucket).
+
+    Returns:
+        ``(x_ds, y_ds)`` reduced numpy arrays (or the originals if small).
+    """
+    y_arr = np.asarray(y, dtype="float64")
+    n = y_arr.shape[0]
+    if n <= max_points:
+        return x, y
+    x_arr = np.asarray(x)
+    buckets = max(1, max_points // 2)
+    keep: set[int] = {0, n - 1}  # always anchor the endpoints
+    for bucket in np.array_split(np.arange(n), buckets):
+        if bucket.size == 0:
+            continue
+        seg = y_arr[bucket]
+        if np.all(np.isnan(seg)):
+            keep.add(int(bucket[0]))
+            continue
+        keep.add(int(bucket[int(np.nanargmin(seg))]))
+        keep.add(int(bucket[int(np.nanargmax(seg))]))
+    idx = np.array(sorted(keep))
+    return x_arr[idx], y_arr[idx]
+
+
 # ---------------------------------------------------------------------------
 # Equity curve
 # ---------------------------------------------------------------------------
@@ -121,25 +159,27 @@ def equity_figure(
 
     for label, sp in series_by_label.items():
         color = color_map_by_label[label]
+        eq_x, eq_y = decimate(sp.dates, sp.equity)
+        hwm_x, hwm_y = decimate(sp.dates, sp.hwm)
         fig.add_trace(
             go.Scatter(
-                x=sp.dates,
-                y=sp.equity,
+                x=eq_x,
+                y=eq_y,
                 mode="lines",
                 name=f"{label} Equity",
                 hovertemplate="Equity: %{y:,.2f}<extra></extra>",
-                line=dict(color=color, simplify=False),
+                line=dict(color=color),
                 hoverlabel=dict(bgcolor=color, bordercolor=color),
             )
         )
         fig.add_trace(
             go.Scatter(
-                x=sp.dates,
-                y=sp.hwm,
+                x=hwm_x,
+                y=hwm_y,
                 mode="lines",
                 name=f"{label} High Watermark",
                 hovertemplate="HWM: %{y:,.2f}<extra></extra>",
-                line=dict(width=1, dash="dot", color=color, simplify=False),
+                line=dict(width=1, dash="dot", color=color),
                 hoverlabel=dict(bgcolor=color, bordercolor=color),
             )
         )
@@ -148,15 +188,16 @@ def equity_figure(
     if drawdown_series:
         for label, sp in drawdown_series.items():
             color = color_map_by_label.get(label) or color_map([label])[label]
+            dd_x, dd_y = decimate(sp.dates, sp.drawdown)
             fig.add_trace(
                 go.Scatter(
-                    x=sp.dates,
-                    y=sp.drawdown,
+                    x=dd_x,
+                    y=dd_y,
                     mode="lines",
                     name=f"{label} Drawdown",
                     fill="tozeroy",
                     hovertemplate="DD: %{y:.2%}<extra></extra>",
-                    line=dict(color=color, width=1, simplify=False),
+                    line=dict(color=color, width=1),
                     fillcolor=with_alpha(color, 0.16),
                     hoverlabel=dict(bgcolor=color, bordercolor=color),
                     yaxis="y2",
@@ -200,15 +241,16 @@ def drawdown_figure(series_by_label: Dict[str, SeriesPack], title: str) -> go.Fi
 
     for label, sp in series_by_label.items():
         color = color_map_by_label[label]
+        dd_x, dd_y = decimate(sp.dates, sp.drawdown)
         fig.add_trace(
             go.Scatter(
-                x=sp.dates,
-                y=sp.drawdown,
+                x=dd_x,
+                y=dd_y,
                 mode="lines",
                 name=f"{label} Drawdown",
                 fill="tozeroy",
-                hovertemplate="DD: %{y:.2f}<extra></extra>",
-                line=dict(color=color, simplify=False),
+                hovertemplate="DD: %{y:.2%}<extra></extra>",
+                line=dict(color=color),
                 fillcolor=with_alpha(color, 0.2),
                 hoverlabel=dict(bgcolor=color, bordercolor=color),
             )
@@ -272,14 +314,17 @@ def rolling_correlation_figure(
         for p2 in products[i + 1 :]:
             roll_corr = returns_df[p1].rolling(window).corr(returns_df[p2])
             label = f"{format_product_label(p1)} vs {format_product_label(p2)}"
+            # Many pairs (e.g. 15 for a 6-leg portfolio) -> decimate harder to keep
+            # the payload/render light.
+            corr_x, corr_y = decimate(dates, roll_corr, max_points=500)
             fig.add_trace(
                 go.Scatter(
-                    x=dates,
-                    y=roll_corr,
+                    x=corr_x,
+                    y=corr_y,
                     mode="lines",
                     name=label,
                     hovertemplate="Roll Corr: %{y:.2f}<extra></extra>",
-                    line=dict(color=color_map_by_label[label], simplify=False),
+                    line=dict(color=color_map_by_label[label]),
                     hoverlabel=dict(bgcolor=color_map_by_label[label], bordercolor=color_map_by_label[label]),
                 )
             )
@@ -344,14 +389,15 @@ def rolling_sharpe_figure(
             sp = compute_series(df, [p], initial_capital)
             r = sp.pnl
             roll = (r.rolling(window).mean() / (r.rolling(window).std(ddof=1) + 1e-12)) * math.sqrt(ann)
+            roll_x, roll_y = decimate(sp.dates, roll)
             fig.add_trace(
                 go.Scatter(
-                    x=sp.dates,
-                    y=roll,
+                    x=roll_x,
+                    y=roll_y,
                     mode="lines",
                     name=format_product_label(p),
                     hovertemplate="Roll Sharpe: %{y:.2f}<extra></extra>",
-                    line=dict(color=color_map_by_label[format_product_label(p)], simplify=False),
+                    line=dict(color=color_map_by_label[format_product_label(p)]),
                     hoverlabel=dict(
                         bgcolor=color_map_by_label[format_product_label(p)],
                         bordercolor=color_map_by_label[format_product_label(p)],
@@ -364,18 +410,18 @@ def rolling_sharpe_figure(
         sp_all = compute_series(df, products, initial_capital)
         r = sp_all.pnl
         roll = (r.rolling(window).mean() / (r.rolling(window).std(ddof=1) + 1e-12)) * math.sqrt(ann)
+        # Guard against a missing key returning None (invalid color for Plotly).
+        agg_color = color_map_by_label.get("ALL (agg)") or color_map(["ALL (agg)"])["ALL (agg)"]
+        agg_x, agg_y = decimate(sp_all.dates, roll)
         fig.add_trace(
             go.Scatter(
-                x=sp_all.dates,
-                y=roll,
+                x=agg_x,
+                y=agg_y,
                 mode="lines",
                 name="ALL (agg)",
-                line=dict(width=2, color=color_map_by_label.get("ALL (agg)"), simplify=False),
+                line=dict(width=2, color=agg_color),
                 hovertemplate="Roll Sharpe: %{y:.2f}<extra></extra>",
-                hoverlabel=dict(
-                    bgcolor=color_map_by_label.get("ALL (agg)"),
-                    bordercolor=color_map_by_label.get("ALL (agg)"),
-                ),
+                hoverlabel=dict(bgcolor=agg_color, bordercolor=agg_color),
             )
         )
 
@@ -409,9 +455,7 @@ def seasonality_figure(df: pd.DataFrame, products: List[str], title: str) -> go.
     Returns:
         Configured Plotly ``Figure`` with a year x month heatmap.
     """
-    valid_products = [p for p in products if p in df.columns and p != "date"]
-    if len(valid_products) == 0:
-        valid_products = [c for c in df.columns if c != "date"]
+    valid_products = valid_product_columns(df, products) or valid_product_columns(df)
 
     tmp = df[["date"] + valid_products].copy()
     tmp["date"] = pd.to_datetime(tmp["date"])
@@ -419,9 +463,15 @@ def seasonality_figure(df: pd.DataFrame, products: List[str], title: str) -> go.
     equity = DEFAULT_INITIAL_CAPITAL + pnl.cumsum()
     eq_series = pd.Series(equity.values, index=tmp["date"])
 
-    # Compute monthly returns as (last - first_nonzero) / |first_nonzero|
-    first_nonzero = eq_series.resample("ME").apply(lambda x: x.loc[x.ne(0)].iloc[0] if (x != 0).any() else np.nan)
-    monthly_returns = (eq_series.resample("ME").last() - first_nonzero) / first_nonzero.abs()
+    # Proper month-over-month return: each month's ending equity relative to
+    # the prior month's ending equity.  The first month is seeded against the
+    # initial capital so it is not dropped.  Using prior-month close (rather
+    # than the first value inside the month) is the standard return definition.
+    month_end_eq = eq_series.resample("ME").last()
+    prior_eq = month_end_eq.shift(1)
+    if len(prior_eq) > 0:
+        prior_eq.iloc[0] = DEFAULT_INITIAL_CAPITAL
+    monthly_returns = (month_end_eq - prior_eq) / prior_eq.abs()
 
     heatmap_df = monthly_returns.to_frame(name="ret")
     heatmap_df["year"] = heatmap_df.index.year

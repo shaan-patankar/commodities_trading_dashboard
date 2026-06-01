@@ -68,6 +68,52 @@ class TestComputeSeries:
         """Initial capital should be 1,000,000, not 0."""
         assert DEFAULT_INITIAL_CAPITAL == 1_000_000.0
 
+    def test_compute_series_missing_date_column(self):
+        """A frame without a 'date' column yields an empty pack, not a KeyError."""
+        df = pd.DataFrame({"product_a": [1.0, 2.0, 3.0]})
+        sp = compute_series(df, ["product_a"], DEFAULT_INITIAL_CAPITAL)
+        assert len(sp.equity) == 0
+        assert len(sp.pnl) == 0
+
+    def test_compute_series_none_frame(self):
+        sp = compute_series(None, ["product_a"], DEFAULT_INITIAL_CAPITAL)
+        assert len(sp.equity) == 0
+
+    def test_compute_series_unknown_product_ignored(self, sample_df):
+        """Stale/unknown product names are filtered, not raised."""
+        sp = compute_series(sample_df, ["product_a", "ghost_product"], DEFAULT_INITIAL_CAPITAL)
+        expected = compute_series(sample_df, ["product_a"], DEFAULT_INITIAL_CAPITAL)
+        pd.testing.assert_series_equal(sp.pnl, expected.pnl, check_names=False)
+
+    def test_compute_series_all_unknown_products_flat(self, sample_df):
+        sp = compute_series(sample_df, ["ghost"], DEFAULT_INITIAL_CAPITAL)
+        assert (sp.equity == DEFAULT_INITIAL_CAPITAL).all()
+
+
+# ---------------------------------------------------------------------------
+# Calmar guard (A1)
+# ---------------------------------------------------------------------------
+class TestCalmarGuard:
+    @staticmethod
+    def _calmar_value(rows: list[dict]) -> str:
+        return next(r["Value"] for r in rows if r["Metric"] == "Calmar")
+
+    def test_calmar_nan_when_no_drawdown(self):
+        """Monotonically rising equity (no drawdown) -> Calmar is em-dash, not inf."""
+        df = pd.DataFrame({
+            "date": pd.bdate_range("2024-01-02", periods=60, freq="B"),
+            "product_a": [1000.0] * 60,  # never a down day -> max_dd == 0
+        })
+        sp = compute_series(df, ["product_a"], DEFAULT_INITIAL_CAPITAL)
+        rows = compute_metrics(sp, rf_annual=0.0)
+        assert self._calmar_value(rows) == "—"
+
+    def test_calmar_finite_with_drawdown(self, sample_series_pack):
+        rows = compute_metrics(sample_series_pack, rf_annual=0.0)
+        value = self._calmar_value(rows)
+        if value != "—":
+            assert math.isfinite(float(value))
+
     def test_single_row(self, single_row_df):
         sp = compute_series(single_row_df, ["product_a"], DEFAULT_INITIAL_CAPITAL)
         assert len(sp.equity) == 1

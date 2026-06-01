@@ -25,6 +25,19 @@ STRATEGY_FILES: dict[str, Path] = {
     "Intraweek Seasonality": DATA_DIR / "intraweek_seasonality_pnls.csv",
 }
 
+# Per-strategy daily-returns CSVs for VaR scaling. These mirror STRATEGY_FILES
+# with the SAME product column headers, but hold daily *returns* of the
+# underlyings (fractional, e.g. 0.012 = 1.2%). Files are optional: VaR scaling
+# is simply unavailable for any strategy whose returns file is missing.
+RETURNS_FILES: dict[str, Path] = {
+    "Momentum": DATA_DIR / "momentum_returns.csv",
+    "Mean Reversion": DATA_DIR / "mean_reversion_returns.csv",
+    "Carry": DATA_DIR / "carry_returns.csv",
+    "Machine Learning": DATA_DIR / "machine_learning_returns.csv",
+    "Short Strangle": DATA_DIR / "short_strangle_returns.csv",
+    "Intraweek Seasonality": DATA_DIR / "intraweek_seasonality_returns.csv",
+}
+
 # ---------------------------------------------------------------------------
 # Plotly graph / interaction config
 # ---------------------------------------------------------------------------
@@ -88,6 +101,15 @@ BASE_HOVERLABEL: dict[str, object] = {
 # Analytics defaults
 # ---------------------------------------------------------------------------
 
-DEFAULT_INITIAL_CAPITAL: float = 0.0
+DEFAULT_INITIAL_CAPITAL: float = 1_000_000.0
 DEFAULT_RF: float = 0.0
 DEFAULT_ROLL_WINDOW: int = 252
+
+# ---------------------------------------------------------------------------
+# VaR scaling defaults (fixed per spec)
+# ---------------------------------------------------------------------------
+
+VAR_Z: float = 1.645              # 95% one-tailed normal quantile (VaR95 = z * sigma)
+VAR_WINDOW: int = 20              # rolling volatility window (trading days)
+VAR_ALLOC_TOLERANCE: float = 0.01  # allowed deviation of the allocation sum from 100 (%)
+DEFAULT_TOTAL_VAR: float = 10_000.0  # default Total VaR Allocation (currency)

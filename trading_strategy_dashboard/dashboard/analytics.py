@@ -56,9 +56,17 @@ def compute_series(df: pd.DataFrame, products: List[str], initial_capital: float
         initial_capital: Starting capital for the equity curve.
 
     Returns:
-        A populated :class:`SeriesPack`.
+        A populated :class:`SeriesPack`.  Missing ``"date"`` column or an empty
+        frame yields an empty pack rather than raising.
     """
+    if df is None or "date" not in df.columns:
+        empty = pd.Series(dtype="float64")
+        return SeriesPack(dates=empty, pnl=empty, equity=empty, hwm=empty, drawdown=empty, returns=empty)
+
     dates = df["date"]
+
+    # Drop any product names that are not actual columns (stale UI state).
+    products = [p for p in products if p in df.columns]
 
     if len(products) == 0:
         pnl = pd.Series(np.zeros(len(df)), index=df.index)
@@ -280,7 +288,7 @@ def compute_metrics(sp: SeriesPack, rf_annual: float = 0.0) -> List[dict]:
     else:
         cagr = np.nan
 
-    calmar = (cagr / abs(max_dd)) if (not np.isnan(cagr) and max_dd < 0) else np.nan
+    calmar = (cagr / abs(max_dd)) if (np.isfinite(cagr) and np.isfinite(max_dd) and max_dd < 0) else np.nan
 
     hit_rate = float((sp.pnl > 0).mean()) if len(sp.pnl) else np.nan
     avg_win = float(sp.pnl[sp.pnl > 0].mean()) if (sp.pnl > 0).any() else np.nan
@@ -322,7 +330,7 @@ def compute_metrics(sp: SeriesPack, rf_annual: float = 0.0) -> List[dict]:
 
     # Monthly return aggregation for summary stats
     eq_series = pd.Series(sp.equity.values, index=pd.to_datetime(sp.dates))
-    monthly_ret = eq_series.resample("ME").last().pct_change().dropna()
+    monthly_ret = eq_series.resample("ME").last().pct_change(fill_method=None).dropna()
 
     rows = [
         {"Metric": "Total PnL", "Value": fmt_cash(total_pnl)},

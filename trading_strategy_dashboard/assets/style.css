@@ -1366,8 +1366,9 @@ html, body {
 
 /* Range / expand buttons */
 .app-root.theme-light .range-toggle-btn {
-  color: rgba(26,34,51,0.6);
-  border-color: rgba(0,0,0,0.1);
+  color: rgba(26,34,51,0.72);
+  background: rgba(0,0,0,0.03);
+  border-color: rgba(0,0,0,0.12);
 }
 
 .app-root.theme-light .range-toggle-btn:hover,
@@ -1398,9 +1399,9 @@ html, body {
 
 /* Custom Analytics tabs */
 .app-root.theme-light .custom-tabs .nav-link {
-  color: rgba(26,34,51,0.55);
-  background: rgba(0,0,0,0.03);
-  border-color: rgba(0,0,0,0.06);
+  color: rgba(26,34,51,0.78);
+  background: rgba(0,0,0,0.05);
+  border-color: rgba(0,0,0,0.08);
 }
 
 .app-root.theme-light .custom-tabs .nav-link.active {
@@ -1414,16 +1415,13 @@ html, body {
   background: rgba(0,0,0,0.06);
 }
 
-/* Metrics table */
+/* Metrics table -- text/header colours are driven inline per theme by the
+   theme_table_styles callback; only borders need a light-mode override here. */
 .app-root.theme-light .dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner th {
-  color: #1a2233 !important;
-  background: rgba(0,0,0,0.03) !important;
   border-color: rgba(0,0,0,0.08) !important;
 }
 
 .app-root.theme-light .dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner td {
-  color: #1a2233 !important;
-  background: transparent !important;
   border-color: rgba(0,0,0,0.06) !important;
 }
 
@@ -1531,7 +1529,7 @@ html, body {
 .app-root.theme-light .metrics-modal-body,
 .app-root.theme-light .custom-analytics-modal-body,
 .app-root.theme-light .csv-modal-body {
-  background: rgba(0,0,0,0.01);
+  background: rgba(255,255,255,0.6);
 }
 
 .app-root.theme-light .modal-backdrop {
@@ -1613,4 +1611,358 @@ body:has(.app-root.theme-light) .offcanvas .strategy-radio .form-check-input:che
 
 body:has(.app-root.theme-light) .offcanvas-backdrop {
   background: rgba(0,0,0,0.15) !important;
+}
+
+/* ========================================================================
+   VaR Scaling — config modal, expand modal, allocation widgets, summary
+   (appended; mirrors the existing modal patterns. Dark base + light overrides.)
+   ======================================================================== */
+
+/* Dim/blur the page behind the VaR modals (mirrors .csv-modal-visible) */
+.app-root.var-modal-visible,
+.app-root.var-expand-visible {
+  overflow: hidden;
+}
+
+.app-root.var-modal-visible::after,
+.app-root.var-expand-visible::after {
+  opacity: 1;
+  backdrop-filter: blur(14px);
+}
+
+.app-root.var-modal-visible .topbar,
+.app-root.var-modal-visible .body-grid,
+.app-root.var-expand-visible .topbar,
+.app-root.var-expand-visible .body-grid {
+  pointer-events: none;
+}
+
+/* Overlays */
+.var-modal-overlay,
+.var-expand-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+  background: transparent;
+  cursor: default;
+  backdrop-filter: blur(0px);
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  transition: opacity 180ms ease, backdrop-filter 180ms ease;
+  z-index: 40;
+}
+
+.var-modal-overlay *,
+.var-expand-overlay * {
+  pointer-events: none;
+}
+
+.var-modal-overlay.open,
+.var-expand-overlay.open {
+  opacity: 1;
+  pointer-events: auto;
+  backdrop-filter: blur(14px);
+  visibility: visible;
+}
+
+.var-modal-overlay.open .modal-backdrop,
+.var-expand-overlay.open .modal-backdrop {
+  backdrop-filter: blur(14px);
+}
+
+.var-modal-overlay.open *,
+.var-expand-overlay.open * {
+  pointer-events: auto;
+}
+
+/* Modal shells */
+.var-modal {
+  width: min(560px, 94vw);
+  max-height: 88vh;
+  background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02));
+  border-radius: 24px;
+  border: 1px solid var(--border);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.03);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  z-index: 1;
+}
+
+.var-expand-modal {
+  width: min(1040px, 92vw);
+  height: min(640px, 80vh);
+  background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02));
+  border-radius: 30px;
+  border: 1px solid var(--border);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.03);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  z-index: 1;
+}
+
+.var-modal-header,
+.var-expand-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255,255,255,0.05);
+}
+
+.var-modal-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px 18px;
+  background: rgba(0,0,0,0.24);
+  overflow-y: auto;
+}
+
+.var-expand-modal-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px 18px;
+  background: rgba(0,0,0,0.24);
+  overflow: auto;
+}
+
+.var-modal-subtitle {
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.var-section-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+/* Total VaR field */
+.var-total-group {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.var-total-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+}
+
+.var-total-input,
+.var-alloc-input {
+  background: rgba(255,255,255,0.04);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 7px 11px;
+  font-size: 13px;
+  font-family: 'Inter', 'Segoe UI', system-ui;
+  outline: none;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.var-total-input {
+  width: 160px;
+}
+
+.var-alloc-input {
+  width: 90px;
+  text-align: right;
+}
+
+.var-total-input:focus,
+.var-alloc-input:focus {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 2px var(--accent-blue-glow);
+}
+
+.var-total-input.invalid,
+.var-alloc-input.invalid {
+  border-color: #ff6b6b;
+  box-shadow: 0 0 0 2px rgba(255,107,107,0.25);
+}
+
+/* Allocation rows */
+.var-alloc-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.var-alloc-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.var-alloc-label {
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.var-alloc-input-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.var-alloc-pct {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.var-row-error,
+.var-total-error {
+  font-size: 11.5px;
+  color: #ff6b6b;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.var-alloc-total {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.var-alloc-total.ok {
+  color: #2ed47a;
+}
+
+.var-alloc-total.bad {
+  color: #ff6b6b;
+}
+
+.var-validation-msg {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.var-modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.var-action-btn {
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.var-apply-btn {
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  margin-left: auto;
+}
+
+.var-active-row {
+  margin-top: 2px;
+}
+
+.var-notice {
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.var-notice:empty {
+  display: none;
+}
+
+/* VaR summary pane (inside the Custom Analytics card) */
+.var-summary-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  flex: 1;
+}
+
+.var-summary-table-wrapper {
+  flex: 1;
+  min-height: 0;
+}
+
+.var-configure-btn {
+  align-self: flex-start;
+}
+
+/* ---- Light mode overrides (scoped; never touch dark) ---- */
+.app-root.theme-light .var-modal,
+.app-root.theme-light .var-expand-modal {
+  background: rgba(255,255,255,0.96);
+  border-color: rgba(0,0,0,0.1);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.12);
+}
+
+.app-root.theme-light .var-modal-header,
+.app-root.theme-light .var-expand-modal-header {
+  background: rgba(0,0,0,0.02);
+  border-bottom-color: rgba(0,0,0,0.06);
+}
+
+.app-root.theme-light .var-modal-body,
+.app-root.theme-light .var-expand-modal-body {
+  background: rgba(255,255,255,0.6);
+}
+
+.app-root.theme-light .var-total-label,
+.app-root.theme-light .var-alloc-label {
+  color: #1a2233;
+}
+
+.app-root.theme-light .var-total-input,
+.app-root.theme-light .var-alloc-input {
+  background: #ffffff;
+  color: #1a2233;
+  border-color: rgba(0,0,0,0.18);
+}
+
+.app-root.theme-light .var-total-input:focus,
+.app-root.theme-light .var-alloc-input:focus {
+  border-color: var(--accent-blue);
+}
+
+.app-root.theme-light .var-modal-header .fw-semibold,
+.app-root.theme-light .var-expand-modal-header .fw-semibold,
+.app-root.theme-light .var-active-row .form-check-label,
+.app-root.theme-light .var-active-row label {
+  color: #1a2233 !important;
+}
+
+.app-root.theme-light .var-section-label,
+.app-root.theme-light .var-modal-subtitle,
+.app-root.theme-light .var-validation-msg,
+.app-root.theme-light .var-notice {
+  color: rgba(26, 34, 51, 0.62);
 }

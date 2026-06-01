@@ -1,0 +1,325 @@
+- generic [ref=e1]:
+  - generic [ref=e3]:
+    - generic:
+      - button "☰"
+      - generic:
+        - generic: Momentum Trading Strategy
+      - generic:
+        - generic:
+          - button "All"
+          - button "Brent M3"
+          - button "Brent M3/M6"
+          - button "Gasoil M3"
+          - button "Gasoil M3/M6"
+          - button "Fuel Oil 3.5% Rdam Crack M3"
+      - button "Settings":
+        - generic:
+          - img "Settings"
+    - generic:
+      - generic:
+        - generic:
+          - generic [ref=e17]:
+            - generic [ref=e18]: Equity Curve
+            - generic [ref=e19]:
+              - button "All" [ref=e20] [cursor=pointer]
+              - button "⛶" [ref=e21] [cursor=pointer]
+          - generic [ref=e72]:
+            - img:
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic: "2016"
+                    - generic:
+                      - generic: "2017"
+                    - generic:
+                      - generic: "2018"
+                    - generic:
+                      - generic: "2019"
+                    - generic:
+                      - generic: "2020"
+                    - generic:
+                      - generic: "2021"
+                    - generic:
+                      - generic: "2022"
+                    - generic:
+                      - generic: "2023"
+                    - generic:
+                      - generic: "2024"
+                    - generic:
+                      - generic: "2025"
+                  - generic:
+                    - generic:
+                      - generic: 1,000,000
+                    - generic:
+                      - generic: 1,000,050
+                    - generic:
+                      - generic: 1,000,100
+                    - generic:
+                      - generic: 1,000,150
+                    - generic:
+                      - generic: 1,000,200
+            - img:
+              - generic:
+                - generic [ref=e89]:
+                  - generic [ref=e91]: All Products Equity
+                  - generic [ref=e94]: All Products High Watermark
+                - generic:
+                  - generic: Equity
+            - img
+      - generic:
+        - generic:
+          - generic [ref=e26]:
+            - generic [ref=e27]: Custom Analytics
+            - generic [ref=e28]:
+              - button "All" [ref=e29] [cursor=pointer]
+              - button "⛶" [ref=e251] [cursor=pointer]
+          - generic:
+            - generic [ref=e32]:
+              - tablist [ref=e33]:
+                - tab "Rolling Sharpe" [ref=e35] [cursor=pointer]
+                - tab "Seasonality" [ref=e37] [cursor=pointer]
+                - tab "Rolling Correlation" [ref=e39] [cursor=pointer]
+                - tab "VaR Scaling" [ref=e41] [cursor=pointer]
+              - generic:
+                - tabpanel
+            - generic:
+              - generic: Preview at equal weight — VaR scaling is off. Click “Configure VaR…” to set and apply it.
+              - generic [ref=e258]:
+                - generic:
+                  - table:
+                    - rowgroup:
+                      - row "Product σ (20d) VaR Budget Notional Weight":
+                        - columnheader "Product" [ref=e259]:
+                          - generic [ref=e261]: Product
+                        - columnheader "σ (20d)" [ref=e262]:
+                          - generic [ref=e264]: σ (20d)
+                        - columnheader "VaR Budget" [ref=e265]:
+                          - generic [ref=e267]: VaR Budget
+                        - columnheader "Notional" [ref=e268]:
+                          - generic [ref=e270]: Notional
+                        - columnheader "Weight" [ref=e271]:
+                          - generic [ref=e273]: Weight
+                      - row "Brent M3 0.89% 2,000 136,869 20.00%":
+                        - cell "Brent M3" [ref=e274]
+                        - cell "0.89%" [ref=e275]
+                        - cell "2,000" [ref=e276]
+                        - cell "136,869" [ref=e277]
+                        - cell "20.00%" [ref=e278]
+                      - row "Brent M3/M6 1.17% 2,000 103,740 20.00%":
+                        - cell "Brent M3/M6" [ref=e279]
+                        - cell "1.17%" [ref=e280]
+                        - cell "2,000" [ref=e281]
+                        - cell "103,740" [ref=e282]
+                        - cell "20.00%" [ref=e283]
+                      - row "Gasoil M3 1.95% 2,000 62,217 20.00%":
+                        - cell "Gasoil M3" [ref=e284]
+                        - cell "1.95%" [ref=e285]
+                        - cell "2,000" [ref=e286]
+                        - cell "62,217" [ref=e287]
+                        - cell "20.00%" [ref=e288]
+                      - row "Gasoil M3/M6 1.08% 2,000 112,319 20.00%":
+                        - cell "Gasoil M3/M6" [ref=e289]
+                        - cell "1.08%" [ref=e290]
+                        - cell "2,000" [ref=e291]
+                        - cell "112,319" [ref=e292]
+                        - cell "20.00%" [ref=e293]
+                      - row "Fuel Oil 3.5% Rdam Crack M3 1.23% 2,000 99,129 20.00%":
+                        - cell "Fuel Oil 3.5% Rdam Crack M3" [ref=e294]
+                        - cell "1.23%" [ref=e295]
+                        - cell "2,000" [ref=e296]
+                        - cell "99,129" [ref=e297]
+                        - cell "20.00%" [ref=e298]
+              - button "Configure VaR…" [active]
+      - generic:
+        - generic:
+          - generic [ref=e46]:
+            - generic [ref=e47]: Drawdown
+            - generic [ref=e48]:
+              - button "All" [ref=e49] [cursor=pointer]
+              - button "⛶" [ref=e50] [cursor=pointer]
+          - generic [ref=e116]:
+            - img:
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic: "2016"
+                    - generic:
+                      - generic: "2017"
+                    - generic:
+                      - generic: "2018"
+                    - generic:
+                      - generic: "2019"
+                    - generic:
+                      - generic: "2020"
+                    - generic:
+                      - generic: "2021"
+                    - generic:
+                      - generic: "2022"
+                    - generic:
+                      - generic: "2023"
+                    - generic:
+                      - generic: "2024"
+                    - generic:
+                      - generic: "2025"
+                  - generic:
+                    - generic:
+                      - generic: 0.0%
+                    - generic:
+                      - generic: 0.0%
+                    - generic:
+                      - generic: 0.0%
+                    - generic:
+                      - generic: 0.0%
+                    - generic:
+                      - generic: 0.0%
+            - img:
+              - generic:
+                - generic:
+                  - generic: Drawdown
+            - img
+      - generic:
+        - generic:
+          - generic [ref=e55]:
+            - generic [ref=e56]: Key Metrics
+            - generic [ref=e57]:
+              - button "All" [ref=e58] [cursor=pointer]
+              - button "⛶" [ref=e59] [cursor=pointer]
+          - generic [ref=e132]:
+            - generic [ref=e133]:
+              - generic:
+                - table:
+                  - rowgroup:
+                    - row "Metric All":
+                      - columnheader "Metric" [ref=e134]:
+                        - generic [ref=e136]: Metric
+                      - columnheader "All" [ref=e230]:
+                        - generic [ref=e139]: All
+            - generic [ref=e140]:
+              - generic:
+                - table:
+                  - rowgroup:
+                    - row "Total PnL 161.07":
+                      - cell "Total PnL" [ref=e141]
+                      - cell "161.07" [ref=e231]
+                    - row "Final Equity 1,000,161.07":
+                      - cell "Final Equity" [ref=e143]
+                      - cell "1,000,161.07" [ref=e232]
+                    - row "CAGR 0.00%":
+                      - cell "CAGR" [ref=e145]
+                      - cell "0.00%" [ref=e233]
+                    - row "Volatility 0.00%":
+                      - cell "Volatility" [ref=e147]
+                      - cell "0.00%" [ref=e234]
+                    - row "Sharpe 0.5545":
+                      - cell "Sharpe" [ref=e149]
+                      - cell "0.5545" [ref=e235]
+                    - row "Sortino 0.5800":
+                      - cell "Sortino" [ref=e151]
+                      - cell "0.5800" [ref=e236]
+                    - row "Max Drawdown -0.00%":
+                      - cell "Max Drawdown" [ref=e153]
+                      - cell "-0.00%" [ref=e237]
+                    - row "Calmar 0.4163":
+                      - cell "Calmar" [ref=e155]
+                      - cell "0.4163" [ref=e238]
+                    - row "Hit Rate 50.92%":
+                      - cell "Hit Rate" [ref=e157]
+                      - cell "50.92%" [ref=e239]
+                    - row "Profit Factor 1.0971":
+                      - cell "Profit Factor" [ref=e159]
+                      - cell "1.0971" [ref=e240]
+                    - row "Avg Win 1.38":
+                      - cell "Avg Win" [ref=e161]
+                      - cell "1.38" [ref=e241]
+                    - row "Avg Loss -1.30":
+                      - cell "Avg Loss" [ref=e163]
+                      - cell "-1.30" [ref=e242]
+                    - row "Best Day PnL 11.08":
+                      - cell "Best Day PnL" [ref=e165]
+                      - cell "11.08" [ref=e243]
+                    - row "Worst Day PnL -11.03":
+                      - cell "Worst Day PnL" [ref=e167]
+                      - cell "-11.03" [ref=e244]
+                    - row "Median Daily PnL 0.04":
+                      - cell "Median Daily PnL" [ref=e169]
+                      - cell "0.04" [ref=e245]
+                    - row "Std Daily PnL 1.79":
+                      - cell "Std Daily PnL" [ref=e171]
+                      - cell "1.79" [ref=e246]
+                    - row "Avg Monthly Return 0.00%":
+                      - cell "Avg Monthly Return" [ref=e173]
+                      - cell "0.00%" [ref=e174]
+                    - row "Monthly Return Vol 0.00%":
+                      - cell "Monthly Return Vol" [ref=e175]
+                      - cell "0.00%" [ref=e176]
+                    - row "Skew (returns) 0.2747":
+                      - cell "Skew (returns)" [ref=e177]
+                      - cell "0.2747" [ref=e247]
+                    - row "Kurtosis (returns) 3.0934":
+                      - cell "Kurtosis (returns)" [ref=e179]
+                      - cell "3.0934" [ref=e248]
+                    - row "Expectancy (per day) 0.06":
+                      - cell "Expectancy (per day)" [ref=e181]
+                      - cell "0.06" [ref=e249]
+                    - row "Max DD Duration (bars) 600":
+                      - cell "Max DD Duration (bars)" [ref=e183]
+                      - cell "600" [ref=e250]
+                    - row "Annualization 252":
+                      - cell "Annualization" [ref=e185]
+                      - cell "252" [ref=e186]
+    - generic [ref=e302]:
+      - generic [ref=e303]:
+        - generic [ref=e304]: VaR Scaling
+        - button "×" [ref=e305] [cursor=pointer]
+      - generic [ref=e306]:
+        - generic [ref=e307]: Size each product so its daily 95% VaR matches its share of the total budget. Sizing uses VaR ÷ (1.645 × 20-day return σ).
+        - generic [ref=e308]:
+          - generic [ref=e309]: Total VaR Allocation
+          - spinbutton [ref=e311]
+          - generic [ref=e312]: Enter a number
+        - generic [ref=e313]: Allocation by product
+        - generic [ref=e314]:
+          - generic [ref=e315]:
+            - generic [ref=e316]: Brent M3
+            - generic [ref=e317]:
+              - spinbutton [ref=e318]
+              - generic [ref=e319]: "%"
+            - generic [ref=e320]: Required
+          - generic [ref=e321]:
+            - generic [ref=e322]: Brent M3/M6
+            - generic [ref=e323]:
+              - spinbutton [ref=e324]
+              - generic [ref=e325]: "%"
+            - generic [ref=e326]: Required
+          - generic [ref=e327]:
+            - generic [ref=e328]: Gasoil M3
+            - generic [ref=e329]:
+              - spinbutton [ref=e330]
+              - generic [ref=e331]: "%"
+            - generic [ref=e332]: Required
+          - generic [ref=e333]:
+            - generic [ref=e334]: Gasoil M3/M6
+            - generic [ref=e335]:
+              - spinbutton [ref=e336]
+              - generic [ref=e337]: "%"
+            - generic [ref=e338]: Required
+          - generic [ref=e339]:
+            - generic [ref=e340]: Fuel Oil 3.5% Rdam Crack M3
+            - generic [ref=e341]:
+              - spinbutton [ref=e342]
+              - generic [ref=e343]: "%"
+            - generic [ref=e344]: Required
+        - generic [ref=e345]: "Total: 0.00% / 100%"
+        - generic [ref=e346]: "Total VaR: enter a number."
+        - generic [ref=e347]:
+          - button "Equal weight" [ref=e348] [cursor=pointer]
+          - button "Normalize to 100%" [ref=e349] [cursor=pointer]
+          - button "Reset" [ref=e350] [cursor=pointer]
+          - button "Apply" [disabled] [ref=e351] [cursor=pointer]
+        - generic [ref=e354]:
+          - checkbox "VaR scaling on" [ref=e355]
+          - generic [ref=e356]: VaR scaling on
+  - contentinfo
+  - img [ref=e187]

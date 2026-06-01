@@ -12,6 +12,38 @@ from typing import Dict, List
 
 import pandas as pd
 
+from dashboard.utils import valid_product_columns
+
+
+# ---------------------------------------------------------------------------
+# Date parsing
+# ---------------------------------------------------------------------------
+
+def _parse_dates(values: pd.Series) -> pd.Series:
+    """Parse a date column that may contain mixed formats.
+
+    The strategy CSVs are not consistent: most use day-first ``DD/MM/YYYY``
+    (e.g. ``04/01/2016`` = 4 Jan) while some use ISO ``YYYY-MM-DD``.  Calling
+    :func:`pandas.to_datetime` without a format defaults to month-first parsing,
+    which silently swaps day/month for days <= 12 and coerces days > 12 to
+    ``NaT`` -- corrupting or dropping a large fraction of rows.
+
+    This helper parses ISO-formatted values with ``%Y-%m-%d`` and everything
+    else day-first, so both layouts round-trip correctly.
+
+    Args:
+        values: Raw date column (strings).
+
+    Returns:
+        A ``datetime64`` Series with mixed source formats parsed correctly.
+    """
+    s = values.astype(str).str.strip()
+    iso_mask = s.str.match(r"^\d{4}-\d{2}-\d{2}")
+    parsed = pd.to_datetime(s, format="%d/%m/%Y", errors="coerce")
+    if iso_mask.any():
+        parsed[iso_mask] = pd.to_datetime(s[iso_mask], format="%Y-%m-%d", errors="coerce")
+    return parsed
+
 
 # ---------------------------------------------------------------------------
 # CSV reading
@@ -44,7 +76,7 @@ def read_strategy_csv(path: Path) -> pd.DataFrame:
         raise ValueError(f"Could not find a date column in {path}. Columns={list(df.columns)}")
 
     df = df.rename(columns={date_col: "date"}).copy()
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df["date"] = _parse_dates(df["date"])
     df = df.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
 
     # Convert all product columns to numeric
@@ -78,9 +110,44 @@ def load_strategies(strategy_files: Dict[str, Path], logger: logging.Logger) -> 
             strategies[name] = read_strategy_csv(path)
         except FileNotFoundError:
             logger.warning("Missing CSV for %s: %s", name, path)
-        except ValueError as exc:
+        except (ValueError, pd.errors.ParserError, pd.errors.EmptyDataError) as exc:
             logger.warning("Skipping %s due to invalid data: %s", name, exc)
+        except (PermissionError, OSError, UnicodeDecodeError) as exc:
+            logger.warning("Skipping %s due to I/O error: %s", name, exc)
+        except Exception as exc:  # noqa: BLE001 - never let one bad CSV crash startup
+            logger.exception("Unexpected error loading %s (%s): %s", name, path, exc)
     return strategies
+
+
+def load_returns(returns_files: Dict[str, Path], logger: logging.Logger) -> Dict[str, pd.DataFrame]:
+    """Load per-strategy daily-returns CSVs for VaR scaling.
+
+    Reuses :func:`read_strategy_csv` (same shape: ``"date"`` + numeric columns).
+    Missing files are expected and logged at INFO level -- VaR scaling is simply
+    unavailable for those strategies; invalid/unreadable files are skipped with a
+    warning.
+
+    Args:
+        returns_files: Mapping of strategy name to returns CSV path.
+        logger:        Logger instance.
+
+    Returns:
+        Mapping of strategy name to its loaded returns DataFrame (only those
+        that loaded successfully).
+    """
+    returns: Dict[str, pd.DataFrame] = {}
+    for name, path in returns_files.items():
+        try:
+            returns[name] = read_strategy_csv(path)
+        except FileNotFoundError:
+            logger.info("No returns CSV for %s (VaR scaling unavailable): %s", name, path)
+        except (ValueError, pd.errors.ParserError, pd.errors.EmptyDataError) as exc:
+            logger.warning("Skipping returns for %s due to invalid data: %s", name, exc)
+        except (PermissionError, OSError, UnicodeDecodeError) as exc:
+            logger.warning("Skipping returns for %s due to I/O error: %s", name, exc)
+        except Exception as exc:  # noqa: BLE001 - never let one bad CSV crash startup
+            logger.exception("Unexpected error loading returns for %s (%s): %s", name, path, exc)
+    return returns
 
 
 # ---------------------------------------------------------------------------
@@ -100,7 +167,7 @@ def products_for_strategy(strategies: Dict[str, pd.DataFrame], strategy: str) ->
     df = strategies.get(strategy)
     if df is None:
         return []
-    return [c for c in df.columns if c != "date"]
+    return valid_product_columns(df)
 
 
 def portfolio_dataframe(strategies: Dict[str, pd.DataFrame], selected_strategies: List[str]) -> pd.DataFrame:

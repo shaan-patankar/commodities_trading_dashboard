@@ -1,0 +1,265 @@
+- generic [ref=e1]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - button "☰" [ref=e5] [cursor=pointer]
+      - generic [ref=e7]: Portfolio
+      - generic [ref=e9]:
+        - button "All Strategies" [ref=e424] [cursor=pointer]
+        - button "Momentum" [ref=e425] [cursor=pointer]
+        - button "Mean Reversion" [ref=e426] [cursor=pointer]
+        - button "Carry" [ref=e427] [cursor=pointer]
+        - button "Machine Learning" [ref=e428] [cursor=pointer]
+        - button "Short Strangle" [ref=e429] [cursor=pointer]
+        - button "Intraweek Seasonality" [ref=e430] [cursor=pointer]
+      - button "Settings" [active] [ref=e11] [cursor=pointer]:
+        - img "Settings" [ref=e13]
+    - generic [ref=e14]:
+      - generic [ref=e16]:
+        - generic [ref=e17]:
+          - generic [ref=e18]: Equity Curve
+          - generic [ref=e19]:
+            - button "All" [ref=e20] [cursor=pointer]
+            - button "⛶" [ref=e21] [cursor=pointer]
+        - generic [ref=e72]:
+          - img:
+            - generic:
+              - generic:
+                - generic:
+                  - generic:
+                    - generic: "2016"
+                  - generic:
+                    - generic: "2017"
+                  - generic:
+                    - generic: "2018"
+                  - generic:
+                    - generic: "2019"
+                  - generic:
+                    - generic: "2020"
+                  - generic:
+                    - generic: "2021"
+                  - generic:
+                    - generic: "2022"
+                  - generic:
+                    - generic: "2023"
+                  - generic:
+                    - generic: "2024"
+                  - generic:
+                    - generic: "2025"
+                - generic:
+                  - generic:
+                    - generic: 1,000,000
+                  - generic:
+                    - generic: 2,000,000
+                  - generic:
+                    - generic: 3,000,000
+                  - generic:
+                    - generic: 4,000,000
+                  - generic:
+                    - generic: 5,000,000
+                  - generic:
+                    - generic: 6,000,000
+          - img:
+            - generic:
+              - generic [ref=e89]:
+                - generic [ref=e91]: All Strategies Equity
+                - generic [ref=e94]: All Strategies High Watermark
+              - generic:
+                - generic: Equity
+          - img
+      - generic [ref=e25]:
+        - generic [ref=e26]:
+          - generic [ref=e27]: Custom Analytics
+          - generic [ref=e28]:
+            - button "All" [ref=e29] [cursor=pointer]
+            - button "⛶" [ref=e251] [cursor=pointer]
+        - generic [ref=e31]:
+          - generic [ref=e32]:
+            - tablist [ref=e33]:
+              - tab "Rolling Sharpe" [ref=e35] [cursor=pointer]
+              - tab "Seasonality" [ref=e37] [cursor=pointer]
+              - tab "Rolling Correlation" [ref=e39] [cursor=pointer]
+              - tab "VaR Scaling" [ref=e41] [cursor=pointer]
+            - generic:
+              - tabpanel
+          - generic [ref=e252]:
+            - generic [ref=e253]: VaR scaling is configured inside each strategy tab. The portfolio sums each strategy’s effective PnL — VaR-scaled where it’s on, raw otherwise.
+            - generic [ref=e258]:
+              - generic:
+                - table:
+                  - rowgroup:
+                    - row "Strategy VaR Total VaR Products":
+                      - columnheader "Strategy" [ref=e431]:
+                        - generic [ref=e261]: Strategy
+                      - columnheader "VaR" [ref=e432]:
+                        - generic [ref=e264]: VaR
+                      - columnheader "Total VaR" [ref=e433]:
+                        - generic [ref=e267]: Total VaR
+                      - columnheader "Products" [ref=e434]:
+                        - generic [ref=e270]: Products
+                    - row "Momentum On 250,000 5":
+                      - cell "Momentum" [ref=e435]
+                      - cell "On" [ref=e436]
+                      - cell "250,000" [ref=e437]
+                      - cell "5" [ref=e438]
+                    - row "Mean Reversion Off — 3":
+                      - cell "Mean Reversion" [ref=e439]
+                      - cell "Off" [ref=e440]
+                      - cell "—" [ref=e441]
+                      - cell "3" [ref=e442]
+                    - row "Carry Off — 2":
+                      - cell "Carry" [ref=e443]
+                      - cell "Off" [ref=e444]
+                      - cell "—" [ref=e445]
+                      - cell "2" [ref=e446]
+                    - row "Machine Learning Off — 2":
+                      - cell "Machine Learning" [ref=e447]
+                      - cell "Off" [ref=e448]
+                      - cell "—" [ref=e449]
+                      - cell "2" [ref=e450]
+                    - row "Short Strangle Off — 1":
+                      - cell "Short Strangle" [ref=e451]
+                      - cell "Off" [ref=e452]
+                      - cell "—" [ref=e453]
+                      - cell "1" [ref=e454]
+                    - row "Intraweek Seasonality Off — 4":
+                      - cell "Intraweek Seasonality" [ref=e455]
+                      - cell "Off" [ref=e456]
+                      - cell "—" [ref=e457]
+                      - cell "4" [ref=e458]
+            - button "Configure VaR…" [ref=e299] [cursor=pointer]
+      - generic [ref=e45]:
+        - generic [ref=e46]:
+          - generic [ref=e47]: Drawdown
+          - generic [ref=e48]:
+            - button "All" [ref=e49] [cursor=pointer]
+            - button "⛶" [ref=e50] [cursor=pointer]
+        - generic [ref=e116]:
+          - img:
+            - generic:
+              - generic:
+                - generic:
+                  - generic:
+                    - generic: "2016"
+                  - generic:
+                    - generic: "2017"
+                  - generic:
+                    - generic: "2018"
+                  - generic:
+                    - generic: "2019"
+                  - generic:
+                    - generic: "2020"
+                  - generic:
+                    - generic: "2021"
+                  - generic:
+                    - generic: "2022"
+                  - generic:
+                    - generic: "2023"
+                  - generic:
+                    - generic: "2024"
+                  - generic:
+                    - generic: "2025"
+                - generic:
+                  - generic:
+                    - generic: −60.0%
+                  - generic:
+                    - generic: −40.0%
+                  - generic:
+                    - generic: −20.0%
+                  - generic:
+                    - generic: 0.0%
+          - img:
+            - generic:
+              - generic:
+                - generic: Drawdown
+          - img
+      - generic [ref=e54]:
+        - generic [ref=e55]:
+          - generic [ref=e56]: Key Metrics
+          - generic [ref=e57]:
+            - button "All" [ref=e58] [cursor=pointer]
+            - button "⛶" [ref=e59] [cursor=pointer]
+        - generic [ref=e132]:
+          - generic [ref=e133]:
+            - generic:
+              - table:
+                - rowgroup:
+                  - row "Metric All Strategies":
+                    - columnheader "Metric" [ref=e134]:
+                      - generic [ref=e136]: Metric
+                    - columnheader "All Strategies" [ref=e459]:
+                      - generic [ref=e139]: All Strategies
+          - generic [ref=e140]:
+            - generic:
+              - table:
+                - rowgroup:
+                  - row "Total PnL 5,167,035.09":
+                    - cell "Total PnL" [ref=e141]
+                    - cell "5,167,035.09" [ref=e460]
+                  - row "Final Equity 6,167,035.09":
+                    - cell "Final Equity" [ref=e143]
+                    - cell "6,167,035.09" [ref=e461]
+                  - row "CAGR 20.07%":
+                    - cell "CAGR" [ref=e145]
+                    - cell "20.07%" [ref=e369]
+                  - row "Volatility 48.82%":
+                    - cell "Volatility" [ref=e147]
+                    - cell "48.82%" [ref=e370]
+                  - row "Sharpe 0.6041":
+                    - cell "Sharpe" [ref=e149]
+                    - cell "0.6041" [ref=e371]
+                  - row "Sortino 0.6359":
+                    - cell "Sortino" [ref=e151]
+                    - cell "0.6359" [ref=e462]
+                  - row "Max Drawdown -70.76%":
+                    - cell "Max Drawdown" [ref=e153]
+                    - cell "-70.76%" [ref=e373]
+                  - row "Calmar 0.2836":
+                    - cell "Calmar" [ref=e155]
+                    - cell "0.2836" [ref=e374]
+                  - row "Hit Rate 51.62%":
+                    - cell "Hit Rate" [ref=e157]
+                    - cell "51.62%" [ref=e463]
+                  - row "Profit Factor 1.0730":
+                    - cell "Profit Factor" [ref=e159]
+                    - cell "1.0730" [ref=e464]
+                  - row "Avg Win 56,710.67":
+                    - cell "Avg Win" [ref=e161]
+                    - cell "56,710.67" [ref=e465]
+                  - row "Avg Loss -56,389.54":
+                    - cell "Avg Loss" [ref=e163]
+                    - cell "-56,389.54" [ref=e466]
+                  - row "Best Day PnL 257,263.24":
+                    - cell "Best Day PnL" [ref=e165]
+                    - cell "257,263.24" [ref=e467]
+                  - row "Worst Day PnL -251,876.29":
+                    - cell "Worst Day PnL" [ref=e167]
+                    - cell "-251,876.29" [ref=e468]
+                  - row "Median Daily PnL 1,768.65":
+                    - cell "Median Daily PnL" [ref=e169]
+                    - cell "1,768.65" [ref=e469]
+                  - row "Std Daily PnL 70,766.30":
+                    - cell "Std Daily PnL" [ref=e171]
+                    - cell "70,766.30" [ref=e470]
+                  - row "Avg Monthly Return 2.67%":
+                    - cell "Avg Monthly Return" [ref=e173]
+                    - cell "2.67%" [ref=e383]
+                  - row "Monthly Return Vol 15.42%":
+                    - cell "Monthly Return Vol" [ref=e175]
+                    - cell "15.42%" [ref=e384]
+                  - row "Skew (returns) 0.4338":
+                    - cell "Skew (returns)" [ref=e177]
+                    - cell "0.4338" [ref=e385]
+                  - row "Kurtosis (returns) 3.6339":
+                    - cell "Kurtosis (returns)" [ref=e179]
+                    - cell "3.6339" [ref=e471]
+                  - row "Expectancy (per day) 1,990.38":
+                    - cell "Expectancy (per day)" [ref=e181]
+                    - cell "1,990.38" [ref=e472]
+                  - row "Max DD Duration (bars) 1045":
+                    - cell "Max DD Duration (bars)" [ref=e183]
+                    - cell "1045" [ref=e388]
+                  - row "Annualization 252":
+                    - cell "Annualization" [ref=e185]
+                    - cell "252" [ref=e186]
+  - contentinfo
+  - img [ref=e187]
