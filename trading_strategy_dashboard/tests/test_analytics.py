@@ -18,33 +18,29 @@ from dashboard.analytics import (
     padded_date_range,
     range_cycle_label,
 )
-from dashboard.config import DEFAULT_INITIAL_CAPITAL, RANGE_OPTIONS
+from dashboard.config import RANGE_OPTIONS
 
 
 # ---------------------------------------------------------------------------
 # compute_series
 # ---------------------------------------------------------------------------
 class TestComputeSeries:
-    def test_equity_starts_at_initial_capital(self, sample_df):
-        sp = compute_series(sample_df, ["product_a"], DEFAULT_INITIAL_CAPITAL)
-        expected_first = DEFAULT_INITIAL_CAPITAL + sample_df["product_a"].iloc[0]
-        assert sp.equity.iloc[0] == pytest.approx(expected_first)
 
     def test_equity_curve_is_cumulative(self, sample_df):
-        sp = compute_series(sample_df, ["product_a", "product_b"], DEFAULT_INITIAL_CAPITAL)
+        sp = compute_series(sample_df, ["product_a", "product_b"])
         cumulative_pnl = sample_df[["product_a", "product_b"]].sum(axis=1).cumsum()
-        expected = DEFAULT_INITIAL_CAPITAL + cumulative_pnl
+        expected = cumulative_pnl
         pd.testing.assert_series_equal(sp.equity, expected, check_names=False)
 
     def test_drawdown_always_le_zero(self, sample_df):
-        sp = compute_series(sample_df, ["product_a", "product_b"], DEFAULT_INITIAL_CAPITAL)
+        sp = compute_series(sample_df, ["product_a", "product_b"])
         assert (sp.drawdown <= 0.0 + 1e-15).all(), "Drawdown must be <= 0"
 
     def test_drawdown_is_percentage(self, sample_df):
         """Drawdown should be (equity/hwm) - 1, not absolute difference."""
-        sp = compute_series(sample_df, ["product_a"], DEFAULT_INITIAL_CAPITAL)
+        sp = compute_series(sample_df, ["product_a"])
         # Manually compute expected drawdown
-        equity = DEFAULT_INITIAL_CAPITAL + sample_df["product_a"].cumsum()
+        equity = sample_df["product_a"].cumsum()
         hwm = equity.cummax()
         expected_dd = (equity / hwm) - 1.0
         pd.testing.assert_series_equal(sp.drawdown, expected_dd, check_names=False, atol=1e-12)
@@ -59,35 +55,23 @@ class TestComputeSeries:
         assert sp.returns.min() >= -1.0
         assert sp.returns.max() <= 10.0
 
-    def test_no_products_gives_flat_equity(self, sample_df):
-        sp = compute_series(sample_df, [], DEFAULT_INITIAL_CAPITAL)
-        assert (sp.equity == DEFAULT_INITIAL_CAPITAL).all()
-        assert (sp.pnl == 0.0).all()
-
-    def test_initial_capital_nonzero(self):
-        """Initial capital should be 1,000,000, not 0."""
-        assert DEFAULT_INITIAL_CAPITAL == 1_000_000.0
 
     def test_compute_series_missing_date_column(self):
         """A frame without a 'date' column yields an empty pack, not a KeyError."""
         df = pd.DataFrame({"product_a": [1.0, 2.0, 3.0]})
-        sp = compute_series(df, ["product_a"], DEFAULT_INITIAL_CAPITAL)
+        sp = compute_series(df, ["product_a"])
         assert len(sp.equity) == 0
         assert len(sp.pnl) == 0
 
     def test_compute_series_none_frame(self):
-        sp = compute_series(None, ["product_a"], DEFAULT_INITIAL_CAPITAL)
+        sp = compute_series(None, ["product_a"])
         assert len(sp.equity) == 0
 
     def test_compute_series_unknown_product_ignored(self, sample_df):
         """Stale/unknown product names are filtered, not raised."""
-        sp = compute_series(sample_df, ["product_a", "ghost_product"], DEFAULT_INITIAL_CAPITAL)
-        expected = compute_series(sample_df, ["product_a"], DEFAULT_INITIAL_CAPITAL)
+        sp = compute_series(sample_df, ["product_a", "ghost_product"])
+        expected = compute_series(sample_df, ["product_a"])
         pd.testing.assert_series_equal(sp.pnl, expected.pnl, check_names=False)
-
-    def test_compute_series_all_unknown_products_flat(self, sample_df):
-        sp = compute_series(sample_df, ["ghost"], DEFAULT_INITIAL_CAPITAL)
-        assert (sp.equity == DEFAULT_INITIAL_CAPITAL).all()
 
 
 # ---------------------------------------------------------------------------
@@ -104,7 +88,7 @@ class TestCalmarGuard:
             "date": pd.bdate_range("2024-01-02", periods=60, freq="B"),
             "product_a": [1000.0] * 60,  # never a down day -> max_dd == 0
         })
-        sp = compute_series(df, ["product_a"], DEFAULT_INITIAL_CAPITAL)
+        sp = compute_series(df, ["product_a"])
         rows = compute_metrics(sp, rf_annual=0.0)
         assert self._calmar_value(rows) == "—"
 
@@ -113,15 +97,6 @@ class TestCalmarGuard:
         value = self._calmar_value(rows)
         if value != "—":
             assert math.isfinite(float(value))
-
-    def test_single_row(self, single_row_df):
-        sp = compute_series(single_row_df, ["product_a"], DEFAULT_INITIAL_CAPITAL)
-        assert len(sp.equity) == 1
-        assert sp.equity.iloc[0] == DEFAULT_INITIAL_CAPITAL + 1000.0
-
-    def test_empty_products_empty_df(self, empty_df):
-        sp = compute_series(empty_df, [], DEFAULT_INITIAL_CAPITAL)
-        assert len(sp.equity) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -176,7 +151,7 @@ class TestComputeMetrics:
         # All positive returns -> sortino denominator = 0 -> should be NaN
         dates = pd.Series(pd.bdate_range("2024-01-02", periods=100))
         df = pd.DataFrame({"date": dates, "product_a": [1000.0] * 100})
-        sp = compute_series(df, ["product_a"], DEFAULT_INITIAL_CAPITAL)
+        sp = compute_series(df, ["product_a"])
         rows = compute_metrics(sp)
         sortino_row = next(r for r in rows if r["Metric"] == "Sortino")
         # With only positive returns, no negative excess -> "—" (NaN)
@@ -218,7 +193,7 @@ class TestComputeMetrics:
         """CAGR should handle very short time periods gracefully."""
         dates = pd.Series(pd.bdate_range("2024-01-02", periods=3))
         df = pd.DataFrame({"date": dates, "product_a": [1000, 2000, 3000]})
-        sp = compute_series(df, ["product_a"], DEFAULT_INITIAL_CAPITAL)
+        sp = compute_series(df, ["product_a"])
         rows = compute_metrics(sp)
         cagr_row = next(r for r in rows if r["Metric"] == "CAGR")
         # Should not crash; value is either a number or "—"
@@ -230,7 +205,7 @@ class TestComputeMetrics:
         assert ann_row["Value"] == "252"
 
     def test_single_row_does_not_crash(self, single_row_df):
-        sp = compute_series(single_row_df, ["product_a"], DEFAULT_INITIAL_CAPITAL)
+        sp = compute_series(single_row_df, ["product_a"])
         rows = compute_metrics(sp)
         assert isinstance(rows, list)
         assert len(rows) > 0
@@ -351,24 +326,3 @@ class TestPaddedDateRange:
 # ---------------------------------------------------------------------------
 # Edge cases
 # ---------------------------------------------------------------------------
-class TestEdgeCases:
-    def test_zero_initial_capital_protection(self):
-        """When initial capital is 0 the code should not divide by zero."""
-        df = pd.DataFrame({
-            "date": pd.date_range("2024-01-01", periods=5),
-            "product_a": [100, 200, -50, 300, 100],
-        })
-        # equity starts at 0+100=100, prev_eq for first row is 0 -> replaced by NaN
-        sp = compute_series(df, ["product_a"], 0.0)
-        assert not sp.returns.isna().all(), "Returns should not all be NaN"
-        assert np.isfinite(sp.returns.iloc[-1])
-
-    def test_all_zero_pnl(self):
-        df = pd.DataFrame({
-            "date": pd.date_range("2024-01-01", periods=10),
-            "product_a": [0.0] * 10,
-        })
-        sp = compute_series(df, ["product_a"], DEFAULT_INITIAL_CAPITAL)
-        assert (sp.equity == DEFAULT_INITIAL_CAPITAL).all()
-        assert (sp.drawdown == 0.0).all()
-        assert (sp.returns == 0.0).all()

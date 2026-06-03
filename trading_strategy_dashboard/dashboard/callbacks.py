@@ -24,10 +24,11 @@ from dashboard.analytics import (
     next_range_key,
     range_cycle_label,
 )
-from dashboard.config import BASE_FONT, DEFAULT_INITIAL_CAPITAL, DEFAULT_RF, DEFAULT_ROLL_WINDOW, PANEL_KEYS
+from dashboard.config import BASE_FONT, DEFAULT_RF, DEFAULT_ROLL_WINDOW, PANEL_KEYS
 from dashboard.table_styles import metrics_cell_style, metrics_header_style
 from dashboard.data import portfolio_dataframe, products_for_strategy
 from dashboard.figures import (
+    correlation_matrix_figure,
     drawdown_figure,
     equity_figure,
     placeholder_figure,
@@ -79,7 +80,7 @@ def _build_metric_rows(
 
     metrics_by_column: Dict[str, List[dict]] = {}
     for label, source_columns in display_columns:
-        sp = compute_series(df, source_columns, DEFAULT_INITIAL_CAPITAL)
+        sp = compute_series(df, source_columns)
         metrics_by_column[label] = compute_metrics(sp, rf_annual=DEFAULT_RF)
 
     metric_order = [row["Metric"] for row in next(iter(metrics_by_column.values()), [])]
@@ -953,7 +954,6 @@ def register_callbacks(
     # change resolves it once rather than five times.
     # ================================================================
 
-    _CAP = DEFAULT_INITIAL_CAPITAL
     _WIN = DEFAULT_ROLL_WINDOW
     _resolve_cache: Dict[tuple, dict] = {}
 
@@ -981,7 +981,7 @@ def register_callbacks(
             selected = all_strategies if "ALL" in sel else [s for s in sel if s in strategies]
             if not selected:
                 selected = all_strategies
-            df, _breakdown = portfolio_effective_dataframe(strategies, returns, selected, var_config, _CAP)
+            df, _breakdown = portfolio_effective_dataframe(strategies, returns, selected, var_config)
             ctx = {
                 "empty": df.empty,
                 "is_portfolio": True,
@@ -1009,7 +1009,7 @@ def register_callbacks(
                     if verdict["ok"]:
                         scaled_df, _ = compute_var_scaled_frame(
                             df, returns_df, all_products,
-                            var_cfg.get("total_var"), var_cfg.get("allocations", {}), _CAP,
+                            var_cfg.get("total_var"), var_cfg.get("allocations", {}),
                         )
                         if not scaled_df.empty:
                             df = scaled_df
@@ -1037,8 +1037,8 @@ def register_callbacks(
     def _series(ctx, range_key):
         fdf = filter_df_by_range(ctx["df"], range_key)
         if ctx["use_agg"]:
-            return {ctx["agg_label"]: compute_series(fdf, ctx["cols"], _CAP)}
-        return {ctx["label_fn"](c): compute_series(fdf, [c], _CAP) for c in ctx["cols"]}
+            return {ctx["agg_label"]: compute_series(fdf, ctx["cols"])}
+        return {ctx["label_fn"](c): compute_series(fdf, [c]) for c in ctx["cols"]}
 
     def _finalize(fig, theme):
         fig.update_layout(autosize=True, margin=dict(l=14, r=14, t=40, b=22))
@@ -1085,7 +1085,7 @@ def register_callbacks(
         if layout_value == "analytics":
             fdf = filter_df_by_range(ctx["df"], equity_range)
             fig = rolling_sharpe_figure(
-                fdf, ctx["cols"], _CAP, _WIN, "",
+                fdf, ctx["cols"], _WIN, "",
                 include_individuals=not ctx["use_agg"], include_aggregate=ctx["use_agg"],
             )
         else:
@@ -1112,7 +1112,7 @@ def register_callbacks(
             return _finalize(placeholder_figure("Drawdowns will display once data is connected."), theme)
         if layout_value == "analytics":
             fdf = filter_df_by_range(ctx["df"], drawdown_range)
-            fig = rolling_correlation_figure(fdf, ctx["cols"], _CAP, _WIN, "")
+            fig = rolling_correlation_figure(fdf, ctx["cols"], _WIN, "")
         else:
             fig = drawdown_figure(_series(ctx, drawdown_range), "")
         return _finalize(fig, theme)
@@ -1127,8 +1127,13 @@ def register_callbacks(
         Input("store-custom-range", "data"),
         Input("store-theme", "data"),
         Input("store-var-config", "data"),
+        Input("store-corr-mode", "data"),
+        Input("corr-range-slider", "value"),
     )
-    def update_custom(strategy, selected_products, active_tab, layout_value, custom_range, theme, var_config):
+    def update_custom(
+        strategy, selected_products, active_tab, layout_value, custom_range,
+        theme, var_config, corr_mode, corr_range,
+    ):
         layout_value = layout_value or "default"
         ctx = _resolve_context(strategy, selected_products, var_config)
         if ctx["empty"]:
@@ -1141,11 +1146,20 @@ def register_callbacks(
             fig = seasonality_figure(fdf, ctx["cols"], "")
         elif active_tab == "tab-roll":
             fig = rolling_sharpe_figure(
-                fdf, ctx["cols"], _CAP, _WIN, "",
+                fdf, ctx["cols"], _WIN, "",
                 include_individuals=not ctx["use_agg"], include_aggregate=ctx["use_agg"],
             )
-        else:  # tab-corr
-            fig = rolling_correlation_figure(fdf, ctx["cols"], _CAP, _WIN, "")
+        else:  # tab-corr -> static matrix (date-slider range) or rolling chart
+            if (corr_mode or "matrix") == "matrix":
+                full = ctx["df"]
+                n = len(full)
+                rng = corr_range or [0, n - 1]
+                lo = max(0, min(int(rng[0]), max(0, n - 1)))
+                hi = max(lo, min(int(rng[1]), max(0, n - 1)))
+                sub = full.iloc[lo:hi + 1] if n else full
+                fig = correlation_matrix_figure(sub, ctx["cols"], "")
+            else:
+                fig = rolling_correlation_figure(fdf, ctx["cols"], _WIN, "")
         return _finalize(fig, theme)
 
     # ---- Key metrics (inline + modal share the same data) ----
@@ -1170,6 +1184,107 @@ def register_callbacks(
             cols, data = build_metrics_table(fdf, ctx["selected_products"], ctx["all_cols"])
         return cols, data, cols, data
 
+    # ================================================================
+    # Correlation tab: Matrix/Rolling toggle + static-matrix date slider
+    # ================================================================
+
+    def _corr_dates(ctx):
+        df = ctx.get("df")
+        if df is None or "date" not in getattr(df, "columns", []) or len(df) == 0:
+            return None
+        return pd.to_datetime(df["date"]).reset_index(drop=True)
+
+    def _corr_slider_config(ctx):
+        """Return (min, max, marks, value) for the date-range slider over ctx's dates."""
+        dates = _corr_dates(ctx)
+        if dates is None or len(dates) < 2:
+            return 0, 1, {}, [0, 1]
+        n = len(dates)
+        marks: Dict[int, str] = {}
+        seen = set()
+        for i, d in enumerate(dates):
+            y = int(d.year)
+            if y not in seen:
+                seen.add(y)
+                marks[i] = str(y)
+        return 0, n - 1, marks, [0, n - 1]
+
+    @app.callback(
+        Output("store-corr-mode", "data"),
+        Input("corr-mode-matrix-btn", "n_clicks"),
+        Input("corr-mode-rolling-btn", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def set_corr_mode(_matrix_clicks, _rolling_clicks):
+        """Toggle the correlation view mode from the segmented buttons."""
+        return "rolling" if callback_context.triggered_id == "corr-mode-rolling-btn" else "matrix"
+
+    @app.callback(
+        Output("corr-mode-matrix-btn", "className"),
+        Output("corr-mode-rolling-btn", "className"),
+        Input("store-corr-mode", "data"),
+    )
+    def style_corr_mode_buttons(mode):
+        """Highlight the active segment of the Matrix/Rolling toggle."""
+        matrix_active = (mode or "matrix") == "matrix"
+        return (
+            "corr-mode-btn active" if matrix_active else "corr-mode-btn",
+            "corr-mode-btn" if matrix_active else "corr-mode-btn active",
+        )
+
+    @app.callback(
+        Output("correlation-controls", "style"),
+        Output("corr-range-wrapper", "style"),
+        Input("custom-tabs", "active_tab"),
+        Input("layout-radio", "value"),
+        Input("store-corr-mode", "data"),
+    )
+    def correlation_controls_visibility(active_tab, layout_value, mode):
+        """Show the controls only on the Correlation tab; the slider only in Matrix mode."""
+        on_corr_tab = active_tab == "tab-corr" and (layout_value or "default") != "analytics"
+        controls = {"display": "flex"} if on_corr_tab else {"display": "none"}
+        slider = {"display": "flex"} if (on_corr_tab and (mode or "matrix") == "matrix") else {"display": "none"}
+        return controls, slider
+
+    @app.callback(
+        Output("corr-range-slider", "min"),
+        Output("corr-range-slider", "max"),
+        Output("corr-range-slider", "marks"),
+        Output("corr-range-slider", "value"),
+        Input("store-selected-strategy", "data"),
+        Input("store-selected-products", "data"),
+        Input("store-var-config", "data"),
+        Input("custom-tabs", "active_tab"),
+    )
+    def init_corr_slider(strategy, selected_products, var_config, active_tab):
+        """Configure the slider bounds/marks for the current frame.
+
+        The full-range *value* is only (re)set when the Correlation tab is active,
+        so switching strategies on other tabs does not re-trigger ``update_custom``.
+        """
+        ctx = _resolve_context(strategy, selected_products, var_config)
+        lo, hi, marks, value = _corr_slider_config(ctx)
+        if active_tab != "tab-corr":
+            return lo, hi, marks, dash.no_update
+        return lo, hi, marks, value
+
+    @app.callback(
+        Output("corr-range-label", "children"),
+        Input("corr-range-slider", "value"),
+        State("store-selected-strategy", "data"),
+        State("store-selected-products", "data"),
+        State("store-var-config", "data"),
+    )
+    def corr_range_label(value, strategy, selected_products, var_config):
+        """Show the selected date range as 'Mon YYYY – Mon YYYY'."""
+        ctx = _resolve_context(strategy, selected_products, var_config)
+        dates = _corr_dates(ctx)
+        if dates is None or not value:
+            return ""
+        n = len(dates)
+        lo = max(0, min(int(value[0]), n - 1))
+        hi = max(lo, min(int(value[1]), n - 1))
+        return f"{dates.iloc[lo]:%b %Y} – {dates.iloc[hi]:%b %Y}"
 
     # ================================================================
     # Lazy modal-graph population

@@ -101,7 +101,6 @@ BASE_HOVERLABEL: dict[str, object] = {
 # Analytics defaults
 # ---------------------------------------------------------------------------
 
-DEFAULT_INITIAL_CAPITAL: float = 1_000_000.0
 DEFAULT_RF: float = 0.0
 DEFAULT_ROLL_WINDOW: int = 252
 

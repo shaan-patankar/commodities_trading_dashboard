@@ -21,7 +21,6 @@ from typing import Dict, List, Optional, Tuple
 import pandas as pd
 
 from dashboard.config import (
-    DEFAULT_INITIAL_CAPITAL,
     VAR_ALLOC_TOLERANCE,
     VAR_WINDOW,
     VAR_Z,
@@ -145,7 +144,6 @@ def compute_var_scaled_frame(
     products: List[str],
     total_var: float,
     allocations: Dict[str, float],
-    initial_capital: float = DEFAULT_INITIAL_CAPITAL,
     z: float = VAR_Z,
     window: int = VAR_WINDOW,
 ) -> Tuple[pd.DataFrame, dict]:
@@ -157,7 +155,6 @@ def compute_var_scaled_frame(
         products:        Products to size (restricted to real strategy columns).
         total_var:       Total VaR budget (currency).
         allocations:     ``{product: percent}`` budget split (rescaled to 100).
-        initial_capital: Unused here but kept for signature symmetry.
         z:               VaR z-factor (default 1.645).
         window:          Rolling vol window (default 20).
 
@@ -228,7 +225,6 @@ def var_scaled_aggregate_series(
     products: List[str],
     total_var: float,
     allocations: Dict[str, float],
-    initial_capital: float = DEFAULT_INITIAL_CAPITAL,
 ) -> pd.DataFrame:
     """Return ``["date", "pnl"]`` -- the summed scaled PnL across products.
 
@@ -236,7 +232,7 @@ def var_scaled_aggregate_series(
     Empty frame if scaling is unavailable.
     """
     scaled_df, _ = compute_var_scaled_frame(
-        strategy_df, returns_df, products, total_var, allocations, initial_capital
+        strategy_df, returns_df, products, total_var, allocations
     )
     if scaled_df.empty:
         return pd.DataFrame(columns=["date", "pnl"])
@@ -250,7 +246,6 @@ def portfolio_effective_dataframe(
     returns: Dict[str, pd.DataFrame],
     selected_strategies: List[str],
     var_configs: Optional[Dict[str, dict]],
-    initial_capital: float = DEFAULT_INITIAL_CAPITAL,
 ) -> Tuple[pd.DataFrame, Dict[str, dict]]:
     """Build the portfolio frame using each strategy's *effective* aggregate PnL.
 
@@ -281,7 +276,7 @@ def portfolio_effective_dataframe(
             if verdict["ok"]:
                 agg = var_scaled_aggregate_series(
                     df, returns_df, products,
-                    cfg.get("total_var"), cfg.get("allocations", {}), initial_capital,
+                    cfg.get("total_var"), cfg.get("allocations", {}),
                 )
                 if not agg.empty:
                     frames.append(agg.rename(columns={"pnl": strategy}))

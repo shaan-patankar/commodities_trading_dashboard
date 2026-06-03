@@ -7,7 +7,6 @@ import pandas as pd
 import pytest
 
 from dashboard.analytics import SeriesPack, compute_series
-from dashboard.config import DEFAULT_INITIAL_CAPITAL
 
 
 @pytest.fixture
@@ -63,7 +62,7 @@ def sample_df_monthly(monthly_dates) -> pd.DataFrame:
 @pytest.fixture
 def sample_series_pack(sample_df) -> SeriesPack:
     """SeriesPack computed from sample_df with default capital."""
-    return compute_series(sample_df, ["product_a", "product_b"], DEFAULT_INITIAL_CAPITAL)
+    return compute_series(sample_df, ["product_a", "product_b"])
 
 
 @pytest.fixture

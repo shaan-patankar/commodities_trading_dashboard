@@ -28,7 +28,7 @@ class SeriesPack:
     Attributes:
         dates:    Original date column from the source DataFrame.
         pnl:     Daily PnL (sum across selected products).
-        equity:  Cumulative equity curve starting at *initial_capital*.
+        equity:  Cumulative equity curve
         hwm:     Running high-water mark of the equity curve.
         drawdown: Percentage drawdown from the high-water mark (0 at peaks,
                   negative during drawdowns).
@@ -47,13 +47,12 @@ class SeriesPack:
 # Series construction
 # ---------------------------------------------------------------------------
 
-def compute_series(df: pd.DataFrame, products: List[str], initial_capital: float) -> SeriesPack:
+def compute_series(df: pd.DataFrame, products: List[str]) -> SeriesPack:
     """Build equity, drawdown, and return series from raw PnL columns.
 
     Args:
         df:              DataFrame with a ``"date"`` column and PnL columns.
         products:        List of column names to aggregate.
-        initial_capital: Starting capital for the equity curve.
 
     Returns:
         A populated :class:`SeriesPack`.  Missing ``"date"`` column or an empty
@@ -73,20 +72,15 @@ def compute_series(df: pd.DataFrame, products: List[str], initial_capital: float
     else:
         pnl = df[products].sum(axis=1)
 
-    equity = initial_capital + pnl.cumsum()
+    equity = pnl.cumsum()
     hwm = equity.cummax()
 
-    # BUG-FIX: Percentage drawdown -- divide by HWM, replacing 0 with NaN
-    # to avoid division-by-zero.  Result is 0 at peaks, negative during drawdowns.
-    dd = (equity / hwm.replace(0, np.nan)) - 1.0
+    dd = equity - hwm
     dd = dd.fillna(0.0)
 
     # Simple returns: daily PnL divided by previous day's equity.
-    # Replace zero equity with NaN to prevent division-by-zero, then clamp
-    # to [-1, 10] to suppress extreme outliers from tiny denominators.
     prev_eq = equity.shift(1).replace(0, np.nan)
     rets = (pnl / prev_eq).fillna(0.0)
-    rets = rets.clip(-1.0, 10.0)
 
     return SeriesPack(dates=dates, pnl=pnl, equity=equity, hwm=hwm, drawdown=dd, returns=rets)
 
@@ -109,18 +103,19 @@ def annualize_factor_from_dates(dates: pd.Series) -> int:
     Returns:
         Annualization factor (252, 52, or 12).
     """
-    if len(dates) < 3:
-        return 252
-    d = pd.to_datetime(dates)
-    deltas = d.diff().dropna().dt.days
-    med = deltas.median()
-    if pd.isna(med):
-        return 252
-    if med <= 2:
-        return 252
-    if med <= 8:
-        return 52
-    return 12
+    return pd.to_datetime(dates.values).to_series().resample("YE").count()[:-1].mean()
+    # if len(dates) < 3:
+    #     return 252
+    # d = pd.to_datetime(dates)
+    # deltas = d.diff().dropna().dt.days
+    # med = deltas.median()
+    # if pd.isna(med):
+    #     return 252
+    # if med <= 2:
+    #     return 252
+    # if med <= 8:
+    #     return 52
+    # return 12
 
 
 def padded_date_range(dates: pd.Series, pad_frac: float = 0.1) -> Optional[Tuple[pd.Timestamp, pd.Timestamp]]:
@@ -255,42 +250,28 @@ def compute_metrics(sp: SeriesPack, rf_annual: float = 0.0) -> List[dict]:
     dates = pd.to_datetime(sp.dates)
     ann = annualize_factor_from_dates(dates)
 
-    rets = sp.returns.copy()
+    pnl = pd.Series(sp.pnl.values, index=sp.dates)
     # Convert annual risk-free rate to per-period rate
-    rf_period = (1.0 + rf_annual) ** (1.0 / ann) - 1.0
-    ex = rets - rf_period
 
     eps = 1e-12
-    mean_r = float(ex.mean())
-    std_r = float(ex.std(ddof=1)) if len(ex) > 1 else 0.0
+    mean_r = float(pnl.mean()) if len(pnl) else 0.0
+    std_r = float(pnl.std(ddof=1)) if len(pnl) > 1 else 0.0
 
-    # BUG-FIX: Sortino ratio -- downside deviation uses RMS of *negative*
-    # excess returns (not std), which is the standard Sortino definition.
-    negative_ex = ex[ex < 0.0]
-    if len(negative_ex) > 0:
-        downside_std = float(np.sqrt((negative_ex**2).mean()))
-    else:
-        downside_std = 0.0
+    negative_pnl = pnl[pnl < 0.0]
+    downside_std = float(np.sqrt((negative_pnl**2).mean())) if len(negative_pnl) > 0 else 0.0
 
     sharpe = (mean_r / (std_r + eps)) * math.sqrt(ann) if std_r > 0 else np.nan
     sortino = (mean_r / (downside_std + eps)) * math.sqrt(ann) if downside_std > 0 else np.nan
-
+    
     max_dd = float(sp.drawdown.min()) if len(sp.drawdown) else np.nan
+    avg_dd = float(sp.drawdown.mean()) if len(sp.drawdown) else np.nan
+
     total_pnl = float(sp.pnl.sum()) if len(sp.pnl) else 0.0
+    calmar = total_pnl / -max_dd
+    annualised_pnl = float(pnl.resample("YE").sum().mean()) if len(sp.pnl) else np.nan
 
-    init = float(sp.equity.iloc[0] - sp.pnl.iloc[0]) if len(sp.equity) else np.nan
-    final_eq = float(sp.equity.iloc[-1]) if len(sp.equity) else np.nan
-
-    # CAGR: compound annual growth rate over the observation period
-    if init > 0 and final_eq > 0 and len(dates) > 1:
-        years = (dates.iloc[-1] - dates.iloc[0]).days / 365.25
-        cagr = (final_eq / init) ** (1.0 / max(years, 1e-9)) - 1.0 if years > 0.01 else np.nan
-    else:
-        cagr = np.nan
-
-    calmar = (cagr / abs(max_dd)) if (np.isfinite(cagr) and np.isfinite(max_dd) and max_dd < 0) else np.nan
-
-    hit_rate = float((sp.pnl > 0).mean()) if len(sp.pnl) else np.nan
+    non_zero_pnl = pnl[pnl != 0.0]
+    hit_rate = float((non_zero_pnl > 0).sum()) / len(non_zero_pnl) if len(non_zero_pnl) > 0 else np.nan
     avg_win = float(sp.pnl[sp.pnl > 0].mean()) if (sp.pnl > 0).any() else np.nan
     avg_loss = float(sp.pnl[sp.pnl < 0].mean()) if (sp.pnl < 0).any() else np.nan
 
@@ -298,10 +279,6 @@ def compute_metrics(sp: SeriesPack, rf_annual: float = 0.0) -> List[dict]:
     sum_loss = float(sp.pnl[sp.pnl < 0].sum()) if (sp.pnl < 0).any() else 0.0
     profit_factor = (sum_win / abs(sum_loss)) if sum_loss < 0 else np.nan
 
-    # BUG-FIX: Volatility -- annualized from *raw* returns (not excess),
-    # which is the standard definition of strategy volatility.
-    raw_std = float(rets.std(ddof=1)) if len(rets) > 1 else 0.0
-    vol = raw_std * math.sqrt(ann) if raw_std > 0 else np.nan
 
     # Max drawdown duration: longest consecutive run where equity < HWM
     below = (sp.equity < sp.hwm).to_numpy()
@@ -313,7 +290,9 @@ def compute_metrics(sp: SeriesPack, rf_annual: float = 0.0) -> List[dict]:
         else:
             cur = 0
 
-    expectancy = float(sp.pnl.mean()) if len(sp.pnl) else np.nan
+    expectancy = float(hit_rate * avg_win + (1 - hit_rate) * avg_loss) if not np.isnan(hit_rate) else np.nan
+
+    recovery_factor = -total_pnl / max_dd if max_dd < 0 else np.nan
 
     # ---- Formatting helpers ----
     def fmt_pct(x: float) -> str:
@@ -322,42 +301,31 @@ def compute_metrics(sp: SeriesPack, rf_annual: float = 0.0) -> List[dict]:
 
     def fmt_num(x: float) -> str:
         """Format a float to 4 decimal places, or em-dash if NaN."""
-        return "\u2014" if (x is None or np.isnan(x)) else f"{x:,.4f}"
+        return "\u2014" if (x is None or np.isnan(x)) else f"{x:,.2f}"
 
     def fmt_cash(x: float) -> str:
         """Format a float as a cash value, or em-dash if NaN."""
         return "\u2014" if (x is None or np.isnan(x)) else f"{x:,.2f}"
 
-    # Monthly return aggregation for summary stats
-    eq_series = pd.Series(sp.equity.values, index=pd.to_datetime(sp.dates))
-    monthly_ret = eq_series.resample("ME").last().pct_change(fill_method=None).dropna()
-
     rows = [
         {"Metric": "Total PnL", "Value": fmt_cash(total_pnl)},
-        {"Metric": "Final Equity", "Value": fmt_cash(final_eq)},
-        {"Metric": "CAGR", "Value": fmt_pct(cagr)},
-        {"Metric": "Volatility", "Value": fmt_pct(vol)},
+        {"Metric": "Annualised PnL", "Value": fmt_cash(annualised_pnl)},
         {"Metric": "Sharpe", "Value": fmt_num(sharpe)},
-        {"Metric": "Sortino", "Value": fmt_num(sortino)},
-        {"Metric": "Max Drawdown", "Value": fmt_pct(max_dd)},
         {"Metric": "Calmar", "Value": fmt_num(calmar)},
+        {"Metric": "Sortino", "Value": fmt_num(sortino)},
+        {"Metric": "Max Drawdown", "Value": fmt_cash(max_dd)},
+        {"Metric": "Avg Drawdown", "Value": fmt_cash(avg_dd)},
+        {"Metric": "Max DD Duration (Days)", "Value": f"{max_dur:d}"},
+        {"Metric": "Recovery Factor", "Value": fmt_num(recovery_factor)},
         {"Metric": "Hit Rate", "Value": fmt_pct(hit_rate)},
-        {"Metric": "Profit Factor", "Value": fmt_num(profit_factor)},
         {"Metric": "Avg Win", "Value": fmt_cash(avg_win)},
         {"Metric": "Avg Loss", "Value": fmt_cash(avg_loss)},
+        {"Metric": "Profit Factor", "Value": fmt_num(profit_factor)},
+        {"Metric": "Expectancy", "Value": fmt_cash(expectancy)},
         {"Metric": "Best Day PnL", "Value": fmt_cash(float(sp.pnl.max()) if len(sp.pnl) else np.nan)},
         {"Metric": "Worst Day PnL", "Value": fmt_cash(float(sp.pnl.min()) if len(sp.pnl) else np.nan)},
-        {"Metric": "Median Daily PnL", "Value": fmt_cash(float(sp.pnl.median()) if len(sp.pnl) else np.nan)},
         {"Metric": "Std Daily PnL", "Value": fmt_cash(float(sp.pnl.std(ddof=1)) if len(sp.pnl) > 1 else np.nan)},
-        {"Metric": "Avg Monthly Return", "Value": fmt_pct(float(monthly_ret.mean()) if len(monthly_ret) else np.nan)},
-        {
-            "Metric": "Monthly Return Vol",
-            "Value": fmt_pct(float(monthly_ret.std(ddof=1)) if len(monthly_ret) > 1 else np.nan),
-        },
-        {"Metric": "Skew (returns)", "Value": fmt_num(float(ex.skew()) if len(ex) else np.nan)},
-        {"Metric": "Kurtosis (returns)", "Value": fmt_num(float(ex.kurt()) if len(ex) else np.nan)},
-        {"Metric": "Expectancy (per day)", "Value": fmt_cash(expectancy)},
-        {"Metric": "Max DD Duration (bars)", "Value": f"{max_dur:d}"},
-        {"Metric": "Annualization", "Value": f"{ann:d}"},
+        {"Metric": "Skew Daily PnL", "Value": fmt_cash(float(pnl.skew()) if len(pnl) else np.nan)},
+        {"Metric": "Kurtosis Daily PnL", "Value": fmt_cash(float(pnl.kurt()) if len(pnl) else np.nan)},
     ]
     return rows

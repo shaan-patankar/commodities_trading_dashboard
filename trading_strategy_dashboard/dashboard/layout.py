@@ -135,6 +135,8 @@ def build_layout(strategy_names: List[str], default_strategy: str, products: Lis
             dcc.Store(id="store-var-config", data={}),
             dcc.Store(id="store-var-modal-open", data=False),
             dcc.Store(id="store-var-expand-open", data=False),
+            # Correlation view mode: "matrix" (static heatmap) or "rolling".
+            dcc.Store(id="store-corr-mode", data="matrix"),
             html.Div(
                 className="topbar",
                 children=[
@@ -439,8 +441,59 @@ def build_layout(strategy_names: List[str], default_strategy: str, products: Lis
                                                         children=[
                                                             dbc.Tab(label="Rolling Sharpe", tab_id="tab-roll"),
                                                             dbc.Tab(label="Seasonality", tab_id="tab-season"),
-                                                            dbc.Tab(label="Rolling Correlation", tab_id="tab-corr"),
+                                                            dbc.Tab(label="Correlation", tab_id="tab-corr"),
                                                             dbc.Tab(label="VaR Scaling", tab_id="tab-var"),
+                                                        ],
+                                                    ),
+                                                ],
+                                            ),
+                                            # Correlation controls: segmented Matrix/Rolling toggle
+                                            # + (matrix-only) date-range slider. Shown on the
+                                            # Correlation tab via a visibility callback.
+                                            html.Div(
+                                                id="correlation-controls",
+                                                className="correlation-controls",
+                                                style={"display": "none"},
+                                                children=[
+                                                    html.Div(
+                                                        className="corr-mode-toggle",
+                                                        children=[
+                                                            dbc.Button(
+                                                                "Static Matrix",
+                                                                id="corr-mode-matrix-btn",
+                                                                className="corr-mode-btn active",
+                                                                color="secondary",
+                                                                outline=True,
+                                                                size="sm",
+                                                                n_clicks=0,
+                                                            ),
+                                                            dbc.Button(
+                                                                "Rolling",
+                                                                id="corr-mode-rolling-btn",
+                                                                className="corr-mode-btn",
+                                                                color="secondary",
+                                                                outline=True,
+                                                                size="sm",
+                                                                n_clicks=0,
+                                                            ),
+                                                        ],
+                                                    ),
+                                                    html.Div(
+                                                        id="corr-range-wrapper",
+                                                        className="corr-range-wrapper",
+                                                        children=[
+                                                            html.Span(id="corr-range-label", className="corr-range-label"),
+                                                            dcc.RangeSlider(
+                                                                id="corr-range-slider",
+                                                                min=0,
+                                                                max=1,
+                                                                value=[0, 1],
+                                                                step=1,
+                                                                marks={},
+                                                                allowCross=False,
+                                                                className="corr-range-slider",
+                                                                tooltip={"placement": "bottom", "always_visible": False},
+                                                            ),
                                                         ],
                                                     ),
                                                 ],

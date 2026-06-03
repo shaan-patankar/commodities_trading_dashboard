@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 
 from dashboard.analytics import compute_series
-from dashboard.config import DEFAULT_INITIAL_CAPITAL, VAR_WINDOW, VAR_Z
+from dashboard.config import VAR_WINDOW, VAR_Z
 from dashboard.data import portfolio_dataframe
 from dashboard.var_scaling import (
     compute_var_scaled_frame,
@@ -167,9 +167,9 @@ class TestComputeVarScaledFrame:
             sample_strategy_df, sample_returns_df,
             ["Brent_M3", "Gasoil_M3"], 10000, {"Brent_M3": 50, "Gasoil_M3": 50},
         )
-        sp = compute_series(scaled, ["Brent_M3", "Gasoil_M3"], DEFAULT_INITIAL_CAPITAL)
+        sp = compute_series(scaled, ["Brent_M3", "Gasoil_M3"])
         assert len(sp.equity) == len(scaled)
-        assert sp.equity.iloc[0] == pytest.approx(DEFAULT_INITIAL_CAPITAL + scaled[["Brent_M3", "Gasoil_M3"]].sum(axis=1).iloc[0])
+        assert sp.equity.iloc[0] == pytest.approx(scaled[["Brent_M3", "Gasoil_M3"]].sum(axis=1).iloc[0])
 
 
 # ---------------------------------------------------------------------------

@@ -6,12 +6,11 @@ import plotly.graph_objects as go
 import pytest
 
 from dashboard.analytics import SeriesPack, compute_series
-from dashboard.config import DEFAULT_INITIAL_CAPITAL
 import numpy as np
 import pandas as pd
 
 from dashboard.figures import (
-    decimate,
+    correlation_matrix_figure,
     drawdown_figure,
     equity_figure,
     placeholder_figure,
@@ -19,33 +18,6 @@ from dashboard.figures import (
     rolling_sharpe_figure,
     seasonality_figure,
 )
-
-
-class TestDecimate:
-    def test_small_series_unchanged(self):
-        x = pd.Series(pd.date_range("2024-01-01", periods=10))
-        y = pd.Series(range(10), dtype="float64")
-        dx, dy = decimate(x, y, max_points=1500)
-        assert dx is x and dy is y  # returned as-is
-
-    def test_large_series_reduced(self):
-        n = 5000
-        x = pd.Series(pd.date_range("2010-01-01", periods=n))
-        y = pd.Series(np.random.default_rng(0).normal(size=n))
-        dx, dy = decimate(x, y, max_points=1000)
-        assert len(dx) == len(dy)
-        assert len(dy) <= 1002  # ~max_points (2 per bucket) + endpoints
-        assert len(dy) < n // 2  # meaningfully reduced
-
-    def test_preserves_global_extremes(self):
-        n = 4000
-        x = pd.Series(pd.date_range("2010-01-01", periods=n))
-        y = np.zeros(n)
-        y[1234] = 99.0   # spike up
-        y[2500] = -55.0  # spike down
-        dx, dy = decimate(x, pd.Series(y), max_points=800)
-        assert dy.max() == 99.0
-        assert dy.min() == -55.0
 
 
 class TestEquityFigure:
@@ -62,8 +34,8 @@ class TestEquityFigure:
         assert isinstance(fig, go.Figure)
 
     def test_multiple_series(self, sample_df):
-        sp_a = compute_series(sample_df, ["product_a"], DEFAULT_INITIAL_CAPITAL)
-        sp_b = compute_series(sample_df, ["product_b"], DEFAULT_INITIAL_CAPITAL)
+        sp_a = compute_series(sample_df, ["product_a"])
+        sp_b = compute_series(sample_df, ["product_b"])
         fig = equity_figure({"A": sp_a, "B": sp_b}, "Multi")
         assert isinstance(fig, go.Figure)
         # Should have traces for each series (equity + hwm per label)
@@ -78,22 +50,22 @@ class TestDrawdownFigure:
 
 class TestRollingCorrelationFigure:
     def test_returns_figure(self, sample_df):
-        fig = rolling_correlation_figure(sample_df, ["product_a", "product_b"], DEFAULT_INITIAL_CAPITAL, 20, "Corr")
+        fig = rolling_correlation_figure(sample_df, ["product_a", "product_b"], 20, "Corr")
         assert isinstance(fig, go.Figure)
 
     def test_single_product_no_error(self, sample_df):
-        fig = rolling_correlation_figure(sample_df, ["product_a"], DEFAULT_INITIAL_CAPITAL, 20, "Corr")
+        fig = rolling_correlation_figure(sample_df, ["product_a"], 20, "Corr")
         assert isinstance(fig, go.Figure)
 
 
 class TestRollingSharpe:
     def test_returns_figure(self, sample_df):
-        fig = rolling_sharpe_figure(sample_df, ["product_a", "product_b"], DEFAULT_INITIAL_CAPITAL, 60, "Sharpe")
+        fig = rolling_sharpe_figure(sample_df, ["product_a", "product_b"], 60, "Sharpe")
         assert isinstance(fig, go.Figure)
 
     def test_individual_only(self, sample_df):
         fig = rolling_sharpe_figure(
-            sample_df, ["product_a"], DEFAULT_INITIAL_CAPITAL, 60, "Sharpe",
+            sample_df, ["product_a"], 60, "Sharpe",
             include_individuals=True, include_aggregate=False,
         )
         assert isinstance(fig, go.Figure)
@@ -101,7 +73,7 @@ class TestRollingSharpe:
     def test_aggregate_trace_has_color(self, sample_df):
         """The 'ALL (agg)' trace must have a non-None line color (A5 guard)."""
         fig = rolling_sharpe_figure(
-            sample_df, ["product_a", "product_b"], DEFAULT_INITIAL_CAPITAL, 60, "Sharpe",
+            sample_df, ["product_a", "product_b"], 60, "Sharpe",
             include_individuals=False, include_aggregate=True,
         )
         agg = [t for t in fig.data if t.name == "ALL (agg)"]
@@ -117,6 +89,44 @@ class TestSeasonalityFigure:
     def test_empty_products_fallback(self, sample_df):
         fig = seasonality_figure(sample_df, [], "Seasonality")
         assert isinstance(fig, go.Figure)
+
+
+class TestCorrelationMatrix:
+    def test_returns_figure(self, sample_df):
+        fig = correlation_matrix_figure(sample_df, ["product_a", "product_b"], "Corr Matrix")
+        assert isinstance(fig, go.Figure)
+        heatmaps = [t for t in fig.data if isinstance(t, go.Heatmap)]
+        assert len(heatmaps) == 1
+        z = np.asarray(heatmaps[0].z)
+        assert z.shape == (2, 2)
+
+    def test_single_product_shows_note(self, sample_df):
+        fig = correlation_matrix_figure(sample_df, ["product_a"], "Corr Matrix")
+        assert isinstance(fig, go.Figure)
+        heatmaps = [t for t in fig.data if isinstance(t, go.Heatmap)]
+        assert len(heatmaps) == 0
+
+    def test_unknown_products_filtered(self, sample_df):
+        fig = correlation_matrix_figure(sample_df, ["product_a", "ghost"], "Corr Matrix")
+        assert isinstance(fig, go.Figure)
+        heatmaps = [t for t in fig.data if isinstance(t, go.Heatmap)]
+        assert len(heatmaps) == 0
+
+    def test_three_products_matrix_3x3(self):
+        dates = pd.bdate_range("2024-01-02", periods=120, freq="B")
+        rng = np.random.default_rng(7)
+        n = len(dates)
+        df = pd.DataFrame({
+            "date": dates,
+            "product_a": rng.normal(100, 500, n),
+            "product_b": rng.normal(50, 300, n),
+            "product_c": rng.normal(75, 400, n),
+        })
+        fig = correlation_matrix_figure(df, ["product_a", "product_b", "product_c"], "Corr Matrix")
+        heatmaps = [t for t in fig.data if isinstance(t, go.Heatmap)]
+        assert len(heatmaps) == 1
+        z = np.asarray(heatmaps[0].z)
+        assert z.shape == (3, 3)
 
 
 class TestPlaceholderFigure:
