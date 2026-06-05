@@ -44,6 +44,105 @@ def product_button(label: str, value: str) -> dbc.Button:
     )
 
 
+def calendar_control(panel: str) -> html.Div:
+    """Build the per-panel calendar button + date-range popover bubble.
+
+    The button sits in the panel header next to the range pill and the ⛶ expand
+    button; clicking it reveals a bubble holding a two-handle date slider with
+    From/To readouts. A set window filters that panel locally (or every panel
+    when the Settings scope toggle is Global). Double-clicking the button — or
+    the bubble's "Full range" button — clears the window.
+
+    Wrapped in a relative anchor (``.cal-control``) so the bubble and its pointer
+    align to *this* button rather than the whole action row.
+    """
+    return html.Div(
+        className="cal-control",
+        children=[
+            dbc.Button(
+                html.Span(className="cal-btn-svg", **{"aria-hidden": "true"}),
+                id={"type": "cal-btn", "panel": panel},
+                color="secondary",
+                outline=True,
+                className="cal-btn",
+                n_clicks=0,
+                size="sm",
+                title="Date range (double-click to reset)",
+            ),
+            html.Div(
+                id={"type": "cal-pop", "panel": panel},
+                className="cal-popover",
+                children=[
+                    html.Div(
+                        className="cal-pop-head",
+                        children=[
+                            html.Div(
+                                className="cal-pop-head-l",
+                                children=[
+                                    html.Span(className="cal-pop-head-icon", **{"aria-hidden": "true"}),
+                                    html.Span("Date Range", className="cal-pop-title"),
+                                ],
+                            ),
+                            dbc.Button(
+                                "×",
+                                id={"type": "cal-close", "panel": panel},
+                                color="secondary",
+                                outline=True,
+                                className="cal-pop-close",
+                                n_clicks=0,
+                                size="sm",
+                            ),
+                        ],
+                    ),
+                    # Box 1: the From / To readout.
+                    html.Div(
+                        className="cal-pop-box cal-pop-range-box",
+                        children=[
+                            html.Div(
+                                className="cal-pop-readout",
+                                children=[
+                                    html.Div(
+                                        className="cal-chip",
+                                        children=[
+                                            html.Span("From", className="cal-chip-cap"),
+                                            html.Span("—", id={"type": "cal-from", "panel": panel}, className="cal-chip-val"),
+                                        ],
+                                    ),
+                                    html.Span(className="cal-chip-arrow", **{"aria-hidden": "true"}),
+                                    html.Div(
+                                        className="cal-chip",
+                                        children=[
+                                            html.Span("To", className="cal-chip-cap"),
+                                            html.Span("—", id={"type": "cal-to", "panel": panel}, className="cal-chip-val"),
+                                        ],
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                    # Box 2: the date slider.
+                    html.Div(
+                        className="cal-pop-box cal-pop-slider-box",
+                        children=[
+                            dcc.RangeSlider(
+                                id={"type": "cal-slider", "panel": panel},
+                                min=0,
+                                max=1,
+                                value=[0, 1],
+                                step=1,
+                                marks={},
+                                allowCross=False,
+                                className="corr-range-slider cal-range-slider",
+                                tooltip=None,
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+        ],
+    )
+
+
 def var_alloc_row(product: str, value: float | None = None) -> html.Div:
     """Build one product allocation row for the VaR config modal.
 
@@ -78,6 +177,87 @@ def var_alloc_row(product: str, value: float | None = None) -> html.Div:
             html.Span("", id={"type": "var-alloc-error", "product": product}, className="var-row-error"),
         ],
     )
+
+
+def var_volume_row(product: str, value: float | None = None) -> html.Div:
+    """Build one product notional/volume row for the fixed-notional VaR mode.
+
+    Fixed mode multiplies the strategy's raw daily PnL by a constant per-product
+    notional, so each row is an absolute volume (no percentage / no sum rule).
+
+    Args:
+        product: Product column name (pattern-matched into the input id).
+        value:   Pre-seeded notional/volume (per-strategy memory), or ``None``.
+
+    Returns:
+        A row with a label, a numeric volume input, and an inline error slot.
+    """
+    return html.Div(
+        className="var-alloc-row",
+        children=[
+            html.Span(format_product_label(product), className="var-alloc-label"),
+            html.Div(
+                className="var-alloc-input-group",
+                children=[
+                    dcc.Input(
+                        id={"type": "var-volume-input", "product": product},
+                        type="number",
+                        min=0,
+                        step="any",
+                        value=value,
+                        className="var-alloc-input",
+                        debounce=True,
+                        placeholder="0",
+                    ),
+                ],
+            ),
+            html.Span("", id={"type": "var-volume-error", "product": product}, className="var-row-error"),
+        ],
+    )
+
+
+# ---------------------------------------------------------------------------
+# VaR summary table styling — mirrors the Key Metrics table so the same
+# left-aligned label column, transparent active/selected (no highlight box),
+# and invisible-scroll behaviour apply. The label column is "strategy" in the
+# Portfolio view and "product" in a strategy view.
+# ---------------------------------------------------------------------------
+
+_VAR_LABEL_COLUMNS = ("strategy", "product")
+
+VAR_LABEL_CELL_CONDITIONAL = [
+    {
+        "if": {"column_id": col},
+        "textAlign": "left",
+        "fontFamily": "'Inter', 'Segoe UI', system-ui",
+        "width": "32%",
+        "minWidth": "180px",
+        "maxWidth": "320px",
+    }
+    for col in _VAR_LABEL_COLUMNS
+]
+
+VAR_LABEL_DATA_CONDITIONAL = [
+    *[{"if": {"column_id": col}, "textAlign": "left"} for col in _VAR_LABEL_COLUMNS],
+    {
+        "if": {"state": "active"},
+        "backgroundColor": "transparent",
+        "border": "0px",
+        "borderBottom": "0px",
+        "boxShadow": "none",
+    },
+    {
+        "if": {"state": "selected"},
+        "backgroundColor": "transparent",
+        "border": "0px",
+        "borderBottom": "0px",
+        "boxShadow": "none",
+    },
+]
+
+VAR_LABEL_HEADER_CONDITIONAL = [
+    {"if": {"column_id": col}, "textAlign": "left"} for col in _VAR_LABEL_COLUMNS
+]
 
 
 def build_layout(strategy_names: List[str], default_strategy: str, products: List[str]) -> html.Div:
@@ -131,12 +311,29 @@ def build_layout(strategy_names: List[str], default_strategy: str, products: Lis
             dcc.Store(id="store-selected-csv", data=default_csv),
             dcc.Store(id="store-csv-modal-open", data=False),
             dcc.Store(id="store-theme", data="deep"),
-            # VaR scaling: config keyed per strategy -> {strategy: {total_var, allocations, active}}
+            # VaR scaling: config keyed per strategy ->
+            #   {strategy: {mode, total_var, allocations, volumes, active}}
+            # mode is "vol" (vol-targeted VaR budget) or "fixed" (constant notional).
             dcc.Store(id="store-var-config", data={}),
             dcc.Store(id="store-var-modal-open", data=False),
             dcc.Store(id="store-var-expand-open", data=False),
+            # Active scaling mode in the config popup: "vol" or "fixed".
+            dcc.Store(id="store-var-mode", data="vol"),
             # Correlation view mode: "matrix" (static heatmap) or "rolling".
             dcc.Store(id="store-corr-mode", data="matrix"),
+            # Value heat-map overlay on the Key Metrics / VaR tables (Settings).
+            dcc.Store(id="store-table-heatmap", data=False),
+            # Per-panel calendar date window ([lo_idx, hi_idx] or None) + popover
+            # open flag, keyed by panel. "local" = each panel independent;
+            # "global" = any panel's window drives every panel.
+            *[dcc.Store(id={"type": "cal-range", "panel": p}, data=None) for p in PANEL_KEYS],
+            *[dcc.Store(id={"type": "cal-open", "panel": p}, data=False) for p in PANEL_KEYS],
+            dcc.Store(id="store-daterange-scope", data="local"),
+            # VaR summary: server emits the real (unpadded) rows + columns here;
+            # a clientside callback measures the table and pads to exactly fill.
+            dcc.Store(id="store-var-rows", data={}),
+            dcc.Store(id="store-win-tick", data=0),
+            dcc.Store(id="store-var-pad", data=0),
             html.Div(
                 className="topbar",
                 children=[
@@ -258,7 +455,7 @@ def build_layout(strategy_names: List[str], default_strategy: str, products: Lis
                                         id="panel-visibility",
                                         options=[
                                             {"label": "Equity Curve", "value": "equity"},
-                                            {"label": "Custom Analytics", "value": "custom"},
+                                            {"label": "Analytics", "value": "custom"},
                                             {"label": "Drawdown", "value": "drawdown"},
                                             {"label": "Key Metrics", "value": "metrics"},
                                         ],
@@ -274,6 +471,14 @@ def build_layout(strategy_names: List[str], default_strategy: str, products: Lis
                                     dbc.Button(
                                         "All Panels: All",
                                         id="btn-cycle-range",
+                                        color="secondary",
+                                        outline=True,
+                                        className="settings-option-btn",
+                                        n_clicks=0,
+                                    ),
+                                    dbc.Button(
+                                        "Date Range: Local",
+                                        id="btn-daterange-scope",
                                         color="secondary",
                                         outline=True,
                                         className="settings-option-btn",
@@ -298,6 +503,20 @@ def build_layout(strategy_names: List[str], default_strategy: str, products: Lis
                                             )
                                             for value, label in theme_options
                                         ],
+                                    ),
+                                ],
+                            ),
+                            html.Div(
+                                className="sidebar-section",
+                                children=[
+                                    html.Div("Table Colours", className="sidebar-section-title"),
+                                    dbc.Button(
+                                        "Value Heatmap: Off",
+                                        id="btn-toggle-heatmap",
+                                        color="secondary",
+                                        outline=True,
+                                        className="settings-option-btn",
+                                        n_clicks=0,
                                     ),
                                 ],
                             ),
@@ -357,6 +576,7 @@ def build_layout(strategy_names: List[str], default_strategy: str, products: Lis
                                                         n_clicks=0,
                                                         size="sm",
                                                     ),
+                                                    calendar_control("equity"),
                                                     dbc.Button(
                                                         "⛶",
                                                         id="open-equity-modal",
@@ -389,7 +609,7 @@ def build_layout(strategy_names: List[str], default_strategy: str, products: Lis
                                         className="card-header-dark",
                                         children=[
                                             html.Div(
-                                                "Custom Analytics",
+                                                "Analytics",
                                                 id="custom-panel-title",
                                                 className="fw-semibold",
                                             ),
@@ -405,6 +625,7 @@ def build_layout(strategy_names: List[str], default_strategy: str, products: Lis
                                                         n_clicks=0,
                                                         size="sm",
                                                     ),
+                                                    calendar_control("custom"),
                                                     dbc.Button(
                                                         "⛶",
                                                         id="open-custom-analytics-modal",
@@ -447,57 +668,6 @@ def build_layout(strategy_names: List[str], default_strategy: str, products: Lis
                                                     ),
                                                 ],
                                             ),
-                                            # Correlation controls: segmented Matrix/Rolling toggle
-                                            # + (matrix-only) date-range slider. Shown on the
-                                            # Correlation tab via a visibility callback.
-                                            html.Div(
-                                                id="correlation-controls",
-                                                className="correlation-controls",
-                                                style={"display": "none"},
-                                                children=[
-                                                    html.Div(
-                                                        className="corr-mode-toggle",
-                                                        children=[
-                                                            dbc.Button(
-                                                                "Static Matrix",
-                                                                id="corr-mode-matrix-btn",
-                                                                className="corr-mode-btn active",
-                                                                color="secondary",
-                                                                outline=True,
-                                                                size="sm",
-                                                                n_clicks=0,
-                                                            ),
-                                                            dbc.Button(
-                                                                "Rolling",
-                                                                id="corr-mode-rolling-btn",
-                                                                className="corr-mode-btn",
-                                                                color="secondary",
-                                                                outline=True,
-                                                                size="sm",
-                                                                n_clicks=0,
-                                                            ),
-                                                        ],
-                                                    ),
-                                                    html.Div(
-                                                        id="corr-range-wrapper",
-                                                        className="corr-range-wrapper",
-                                                        children=[
-                                                            html.Span(id="corr-range-label", className="corr-range-label"),
-                                                            dcc.RangeSlider(
-                                                                id="corr-range-slider",
-                                                                min=0,
-                                                                max=1,
-                                                                value=[0, 1],
-                                                                step=1,
-                                                                marks={},
-                                                                allowCross=False,
-                                                                className="corr-range-slider",
-                                                                tooltip={"placement": "bottom", "always_visible": False},
-                                                            ),
-                                                        ],
-                                                    ),
-                                                ],
-                                            ),
                                             html.Div(
                                                 id="custom-graph-wrapper",
                                                 className="custom-graph-wrapper mt-2",
@@ -515,7 +685,6 @@ def build_layout(strategy_names: List[str], default_strategy: str, products: Lis
                                                 className="var-summary-wrapper mt-2",
                                                 style={"display": "none"},
                                                 children=[
-                                                    html.Div(id="var-notice", className="var-notice"),
                                                     html.Div(
                                                         className="metrics-table-wrapper var-summary-table-wrapper",
                                                         children=[
@@ -524,18 +693,24 @@ def build_layout(strategy_names: List[str], default_strategy: str, products: Lis
                                                                 columns=[],
                                                                 data=[],
                                                                 style_as_list_view=True,
+                                                                fixed_rows={"headers": True},
                                                                 fill_width=True,
                                                                 style_table={
                                                                     "maxHeight": "100%",
                                                                     "minHeight": "0",
                                                                     "width": "100%",
+                                                                    "minWidth": "max-content",
+                                                                    "backgroundColor": "transparent",
                                                                     "overflowY": "auto",
                                                                     "overflowX": "auto",
                                                                     "border": "0px",
                                                                     "borderRadius": "14px",
                                                                 },
                                                                 style_cell=metrics_cell_style(),
+                                                                style_cell_conditional=VAR_LABEL_CELL_CONDITIONAL,
+                                                                style_data_conditional=VAR_LABEL_DATA_CONDITIONAL,
                                                                 style_header=metrics_header_style(),
+                                                                style_header_conditional=VAR_LABEL_HEADER_CONDITIONAL,
                                                                 page_action="none",
                                                             )
                                                         ],
@@ -545,7 +720,7 @@ def build_layout(strategy_names: List[str], default_strategy: str, products: Lis
                                                         id="btn-var-open-from-tab",
                                                         color="secondary",
                                                         outline=True,
-                                                        className="settings-option-btn var-configure-btn",
+                                                        className="settings-option-btn var-configure-btn fw-semibold",
                                                         n_clicks=0,
                                                     ),
                                                 ],
@@ -583,6 +758,7 @@ def build_layout(strategy_names: List[str], default_strategy: str, products: Lis
                                                         n_clicks=0,
                                                         size="sm",
                                                     ),
+                                                    calendar_control("drawdown"),
                                                     dbc.Button(
                                                         "⛶",
                                                         id="open-drawdown-modal",
@@ -634,6 +810,7 @@ def build_layout(strategy_names: List[str], default_strategy: str, products: Lis
                                                         n_clicks=0,
                                                         size="sm",
                                                     ),
+                                                    calendar_control("metrics"),
                                                     dbc.Button(
                                                         "⛶",
                                                         id="open-metrics-modal",
@@ -915,7 +1092,7 @@ def build_layout(strategy_names: List[str], default_strategy: str, products: Lis
                                 className="custom-analytics-modal-header",
                                 children=[
                                     html.Div(
-                                        "Custom Analytics",
+                                        "Analytics",
                                         id="custom-analytics-modal-title",
                                         className="fw-semibold",
                                     ),
@@ -1067,72 +1244,114 @@ def build_layout(strategy_names: List[str], default_strategy: str, products: Lis
                             html.Div(
                                 className="var-modal-body",
                                 children=[
+                                    # ---- Scaling-mode toggle (Volatility vs Fixed notional) ----
                                     html.Div(
-                                        "Size each product so its daily 95% VaR matches its share of "
-                                        "the total budget. Sizing uses VaR ÷ (1.645 × 20-day return σ).",
-                                        className="var-modal-subtitle",
-                                    ),
-                                    html.Div(
-                                        className="var-total-group",
+                                        className="var-mode-row",
                                         children=[
-                                            html.Label("Total VaR Allocation", className="var-total-label"),
-                                            # Input is rendered here (seeded per strategy) to keep the
-                                            # config<->value sync acyclic.
-                                            html.Div(id="var-total-container", className="var-total-container"),
-                                            html.Span("", id="var-total-error", className="var-total-error"),
-                                        ],
-                                    ),
-                                    html.Div("Allocation by product", className="var-section-label"),
-                                    html.Div(id="var-alloc-rows", className="var-alloc-rows"),
-                                    html.Div(id="var-alloc-total", className="var-alloc-total"),
-                                    html.Div(id="var-validation-msg", className="var-validation-msg"),
-                                    html.Div(
-                                        className="var-modal-actions",
-                                        children=[
-                                            dbc.Button(
-                                                "Equal weight",
-                                                id="btn-var-equal",
-                                                color="secondary",
-                                                outline=True,
-                                                className="var-action-btn",
-                                                n_clicks=0,
-                                                size="sm",
-                                            ),
-                                            dbc.Button(
-                                                "Normalize to 100%",
-                                                id="btn-var-normalize",
-                                                color="secondary",
-                                                outline=True,
-                                                className="var-action-btn",
-                                                n_clicks=0,
-                                                size="sm",
-                                            ),
-                                            dbc.Button(
-                                                "Reset",
-                                                id="btn-var-reset",
-                                                color="secondary",
-                                                outline=True,
-                                                className="var-action-btn",
-                                                n_clicks=0,
-                                                size="sm",
-                                            ),
-                                            dbc.Button(
-                                                "Apply",
-                                                id="btn-var-apply",
-                                                color="primary",
-                                                className="var-apply-btn",
-                                                n_clicks=0,
-                                                size="sm",
-                                                disabled=True,
+                                            html.Div(
+                                                className="var-mode-toggle",
+                                                children=[
+                                                    dbc.Button(
+                                                        "VaR Scaled",
+                                                        id="var-mode-vol-btn",
+                                                        color="secondary",
+                                                        outline=True,
+                                                        className="var-mode-btn active",
+                                                        n_clicks=0,
+                                                        size="sm",
+                                                    ),
+                                                    dbc.Button(
+                                                        "Fixed Volume",
+                                                        id="var-mode-fixed-btn",
+                                                        color="secondary",
+                                                        outline=True,
+                                                        className="var-mode-btn",
+                                                        n_clicks=0,
+                                                        size="sm",
+                                                    ),
+                                                ],
                                             ),
                                         ],
                                     ),
+                                    # ---- Volatility (VaR budget) section ----
                                     html.Div(
-                                        className="var-active-row",
+                                        id="var-vol-section",
+                                        className="var-vol-section",
                                         children=[
-                                            # Switch is rendered here (seeded per strategy) to keep the
-                                            # config<->value sync acyclic.
-                                            html.Div(id="var-switch-container", className="var-switch-container"),
+                                            html.Div(
+                                                className="var-field",
+                                                children=[
+                                                    html.Div(
+                                                        className="var-field-head",
+                                                        children=[
+                                                            html.Label("Total VaR allocation", className="var-total-label"),
+                                                            html.Span("", id="var-total-error", className="var-total-error"),
+                                                        ],
+                                                    ),
+                                                    # Input rendered here (seeded per strategy) to keep the
+                                                    # config<->value sync acyclic.
+                                                    html.Div(id="var-total-container", className="var-total-container"),
+                                                ],
+                                            ),
+                                            html.Div(
+                                                className="var-alloc-head",
+                                                children=[
+                                                    html.Div("Allocation by product", className="var-section-label"),
+                                                    html.Div("0% / 100%", id="var-alloc-total", className="var-alloc-total"),
+                                                ],
+                                            ),
+                                            html.Div(id="var-alloc-rows", className="var-alloc-rows"),
+                                        ],
+                                    ),
+                                    # ---- Fixed-notional section (hidden until selected) ----
+                                    html.Div(
+                                        id="var-fixed-section",
+                                        className="var-fixed-section",
+                                        style={"display": "none"},
+                                        children=[
+                                            html.Div("Volume by product", className="var-section-label"),
+                                            html.Div(id="var-volume-rows", className="var-alloc-rows"),
+                                        ],
+                                    ),
+                                    # ---- Footer action bar. The Apply button doubles as the
+                                    # on/off control: it reads "VaR On" (applies + activates)
+                                    # when scaling is off, and "VaR Off" (deactivates) when on.
+                                    html.Div(
+                                        className="var-modal-footer",
+                                        children=[
+                                            html.Div(
+                                                className="var-footer-actions",
+                                                children=[
+                                                    dbc.Button(
+                                                        "Equal Weight",
+                                                        id="btn-var-equal",
+                                                        color="secondary",
+                                                        outline=True,
+                                                        className="var-action-btn var-equal-btn",
+                                                        n_clicks=0,
+                                                        size="sm",
+                                                    ),
+                                                    dbc.Button(
+                                                        "Reset",
+                                                        id="btn-var-reset",
+                                                        color="secondary",
+                                                        outline=True,
+                                                        className="var-action-btn",
+                                                        n_clicks=0,
+                                                        size="sm",
+                                                    ),
+                                                    dbc.Button(
+                                                        "VaR Off",
+                                                        id="btn-var-apply",
+                                                        color="secondary",
+                                                        outline=True,
+                                                        className="var-action-btn var-apply-btn",
+                                                        n_clicks=0,
+                                                        size="sm",
+                                                        disabled=True,
+                                                    ),
+                                                ],
+                                            ),
                                         ],
                                     ),
                                 ],
@@ -1172,7 +1391,6 @@ def build_layout(strategy_names: List[str], default_strategy: str, products: Lis
                             html.Div(
                                 className="var-expand-modal-body",
                                 children=[
-                                    html.Div(id="var-expand-notice", className="var-notice"),
                                     html.Div(
                                         className="metrics-table-wrapper var-summary-table-wrapper",
                                         children=[
@@ -1181,18 +1399,24 @@ def build_layout(strategy_names: List[str], default_strategy: str, products: Lis
                                                 columns=[],
                                                 data=[],
                                                 style_as_list_view=True,
+                                                fixed_rows={"headers": True},
                                                 fill_width=True,
                                                 style_table={
                                                     "maxHeight": "100%",
                                                     "minHeight": "0",
                                                     "width": "100%",
+                                                    "minWidth": "max-content",
+                                                    "backgroundColor": "transparent",
                                                     "overflowY": "auto",
                                                     "overflowX": "auto",
                                                     "border": "0px",
                                                     "borderRadius": "18px",
                                                 },
                                                 style_cell=metrics_cell_style(padding="12px 14px", min_width="140px"),
+                                                style_cell_conditional=VAR_LABEL_CELL_CONDITIONAL,
+                                                style_data_conditional=VAR_LABEL_DATA_CONDITIONAL,
                                                 style_header=metrics_header_style(header_bg_dark="rgba(255,255,255,0.05)"),
+                                                style_header_conditional=VAR_LABEL_HEADER_CONDITIONAL,
                                                 page_action="none",
                                             )
                                         ],

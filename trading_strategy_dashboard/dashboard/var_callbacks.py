@@ -18,17 +18,18 @@ from typing import Dict, List
 
 import dash
 from dash import ALL, Input, Output, State, callback_context, dcc, html
-import dash_bootstrap_components as dbc
 import pandas as pd
 
 from dashboard.config import DEFAULT_TOTAL_VAR, RETURNS_FILES, VAR_ALLOC_TOLERANCE
-from dashboard.layout import var_alloc_row
-from dashboard.table_styles import metrics_cell_style, metrics_header_style
+from dashboard.layout import var_alloc_row, var_volume_row
+from dashboard.table_styles import metrics_cell_style, metrics_header_style, table_data_conditional
 from dashboard.utils import format_product_label, valid_product_columns
 from dashboard.var_scaling import (
     compute_var_scaled_frame,
+    config_is_valid,
+    config_mode,
     equal_weight_allocations,
-    normalize_allocations,
+    validate_fixed_config,
     validate_var_config,
 )
 
@@ -55,15 +56,21 @@ def _fmt_cash(x: float) -> str:
 _STRATEGY_COLUMNS = [
     {"name": "Product", "id": "product"},
     {"name": "σ (20d)", "id": "sigma"},
-    {"name": "VaR Budget", "id": "budget"},
-    {"name": "Notional", "id": "notional"},
+    {"name": "VaR Allocation", "id": "budget"},
+    {"name": "Volume", "id": "notional"},
     {"name": "Weight", "id": "weight"},
+]
+
+_FIXED_COLUMNS = [
+    {"name": "Product", "id": "product"},
+    {"name": "σ (20d)", "id": "sigma"},
+    {"name": "Volume", "id": "volume"},
 ]
 
 _PORTFOLIO_COLUMNS = [
     {"name": "Strategy", "id": "strategy"},
-    {"name": "VaR", "id": "varon"},
-    {"name": "Total VaR", "id": "total"},
+    {"name": "Status", "id": "varon"},
+    {"name": "Mode", "id": "mode"},
     {"name": "Products", "id": "nprod"},
 ]
 
@@ -88,38 +95,40 @@ def _total_input(value, disabled: bool = False) -> dcc.Input:
     )
 
 
-def _active_switch(value: bool, disabled: bool = False) -> dbc.Switch:
-    """Build the VaR on/off switch (rendered, so it can be seeded acyclically)."""
-    return dbc.Switch(
-        id="var-active-switch",
-        label="VaR scaling on",
-        value=bool(value),
-        disabled=disabled,
-        className="var-active-switch",
-    )
+# The VaR summary tables mirror the Key Metrics table: real product rows sit at
+# the top and the remainder is padded with blank "—" rows so the table fills its
+# box. The pad COUNT is computed clientside from the measured container height
+# (so only as many blanks as the viewport needs), hence the builders below return
+# the real rows only.
 
 
 def _build_strategy_summary(strategy, strategies, returns, var_config):
-    """Return (columns, rows, notice) for an individual strategy's VaR tab."""
+    """Return (columns, rows, notice) for an individual strategy's VaR tab.
+
+    Dispatches on the strategy's persisted mode: vol-targeting shows σ/budget/
+    notional/weight; fixed-notional shows the per-product volume and the latest
+    raw/effective PnL.
+    """
     df = strategies.get(strategy)
     products = valid_product_columns(df) if df is not None else []
     cfg = (var_config or {}).get(strategy) or {}
     returns_df = returns.get(strategy)
+    active = bool(cfg.get("active"))
 
     if df is None:
-        return _STRATEGY_COLUMNS, [], "No data for this strategy."
+        return _STRATEGY_COLUMNS, [], ""
+
+    if config_mode(cfg) == "fixed":
+        return _build_fixed_summary(strategy, df, products, cfg, active, returns_df)
+
+    # ---- Volatility (VaR budget) mode ----
     if returns_df is None:
-        return (
-            _STRATEGY_COLUMNS,
-            [],
-            f"No returns CSV found for {strategy}. Add data/{_returns_filename(strategy)} "
-            f"(same product columns) to enable VaR scaling.",
-        )
+        return _STRATEGY_COLUMNS, [], ""
 
-    notice = ""
-    if not bool(cfg.get("active")):
-        notice = "Preview at equal weight — VaR scaling is off. Click “Configure VaR…” to set and apply it."
-
+    # σ is independent of the VaR config, so it is always shown. The budget /
+    # notional / weight columns only carry values while scaling is actually on;
+    # when off they blank out to "—" (the diagnostics are still computed only to
+    # obtain σ).
     total_var = cfg.get("total_var") if cfg.get("total_var") is not None else DEFAULT_TOTAL_VAR
     allocations = cfg.get("allocations") or {}
     _, diag = compute_var_scaled_frame(df, returns_df, products, total_var, allocations)
@@ -127,22 +136,51 @@ def _build_strategy_summary(strategy, strategies, returns, var_config):
     rows: List[dict] = []
     for p in products:
         latest = diag["latest"].get(p)
-        if latest is None:
-            rows.append({"product": format_product_label(p), "sigma": "—", "budget": "—",
-                         "notional": "—", "weight": "—"})
-            continue
+        sigma = _fmt_pct(latest["sigma"]) if latest else "—"
+        if active and latest is not None:
+            rows.append({
+                "product": format_product_label(p),
+                "sigma": sigma,
+                "budget": _fmt_cash(latest["var_alloc"]),
+                "notional": _fmt_cash(latest["notional"]),
+                "weight": _fmt_pct(latest["weight"]),
+            })
+        else:
+            rows.append({
+                "product": format_product_label(p),
+                "sigma": sigma, "budget": "—", "notional": "—", "weight": "—",
+            })
+    return _STRATEGY_COLUMNS, rows, ""
+
+
+def _build_fixed_summary(strategy, df, products, cfg, active, returns_df):
+    """Return (columns, rows, notice) for a strategy in fixed-volume mode.
+
+    Shows the product's σ (20d) — the same returns-based volatility used in the
+    VaR-scaled view, config-independent so always shown when a returns CSV is
+    present — alongside the configured Volume (only while scaling is on).
+    """
+    volumes = cfg.get("volumes") or {}
+
+    # σ is independent of the volumes, so compute it once off the returns CSV
+    # (allocations are irrelevant to σ). Absent returns -> "—".
+    sigma_latest: dict = {}
+    if returns_df is not None:
+        _, sdiag = compute_var_scaled_frame(df, returns_df, products, DEFAULT_TOTAL_VAR, {})
+        sigma_latest = sdiag.get("latest", {})
+
+    rows: List[dict] = []
+    for p in products:
+        slat = sigma_latest.get(p)
+        sigma = _fmt_pct(slat["sigma"]) if slat else "—"
+        vol = volumes.get(p)
+        has_vol = vol is not None and vol != ""
         rows.append({
             "product": format_product_label(p),
-            "sigma": _fmt_pct(latest["sigma"]),
-            "budget": _fmt_cash(latest["var_alloc"]),
-            "notional": _fmt_cash(latest["notional"]),
-            "weight": _fmt_pct(latest["weight"]),
+            "sigma": sigma,
+            "volume": _fmt_cash(vol) if (active and has_vol) else "—",
         })
-
-    if diag["skipped"]:
-        skipped = ", ".join(format_product_label(s) for s in diag["skipped"])
-        notice = (notice + " " if notice else "") + f"No returns column for: {skipped}."
-    return _STRATEGY_COLUMNS, rows, notice
+    return _FIXED_COLUMNS, rows, ""
 
 
 def _build_portfolio_summary(strategy_names, strategies, returns, var_config):
@@ -155,27 +193,27 @@ def _build_portfolio_summary(strategy_names, strategies, returns, var_config):
         products = valid_product_columns(df)
         cfg = (var_config or {}).get(s) or {}
         returns_df = returns.get(s)
-        active = bool(cfg.get("active")) and returns_df is not None
-        valid = active and validate_var_config(cfg.get("total_var"), cfg.get("allocations", {}), products)["ok"]
-        if valid:
+        active = bool(cfg.get("active"))
+        mode = config_mode(cfg)
+        valid = active and config_is_valid(cfg, returns_df, products)
+
+        if not active:
+            status = "Off"
+        elif valid:
             status = "On"
-        elif active:
-            status = "On (check config)"
-        elif returns_df is None:
+        elif mode == "vol" and returns_df is None:
             status = "No returns CSV"
         else:
-            status = "Off"
+            status = "On (check config)"
+
+        mode_label = ("Fixed Volume" if mode == "fixed" else "VaR Scaled") if valid else "—"
         rows.append({
             "strategy": s,
             "varon": status,
-            "total": _fmt_cash(cfg.get("total_var")) if valid else "—",
+            "mode": mode_label,
             "nprod": str(len(products)),
         })
-    notice = (
-        "VaR scaling is configured inside each strategy tab. The portfolio sums "
-        "each strategy’s effective PnL — VaR-scaled where it’s on, raw otherwise."
-    )
-    return _PORTFOLIO_COLUMNS, rows, notice
+    return _PORTFOLIO_COLUMNS, rows, ""
 
 
 # ---------------------------------------------------------------------------
@@ -239,14 +277,55 @@ def register_var_callbacks(
     def var_expand_class(is_open):
         return "var-expand-overlay open" if is_open else "var-expand-overlay"
 
-    # ---- Render the whole config form (total input, switch, allocation rows),
-    # seeded per strategy. Seeding via children (not via `.value` outputs) keeps
-    # the config<->inputs relationship acyclic: there is no `config -> value`
-    # edge, only `config -> children`, so the renderer's cycle check passes.
+    # ---- Scaling-mode selection (Volatility VaR budget vs Fixed notional).
+    # A single callback both seeds the mode from the strategy's saved config (on
+    # strategy change / modal open) and flips it on a toggle click. store-var-mode
+    # is never an input to the form renderer, so this stays acyclic.
+    @app.callback(
+        Output("store-var-mode", "data"),
+        Input("store-selected-strategy", "data"),
+        Input("store-var-modal-open", "data"),
+        Input("var-mode-vol-btn", "n_clicks"),
+        Input("var-mode-fixed-btn", "n_clicks"),
+        State("store-var-config", "data"),
+    )
+    def set_var_mode(strategy, _modal_open, _vol_clicks, _fixed_clicks, var_config):
+        trig = callback_context.triggered_id
+        if trig == "var-mode-vol-btn":
+            return "vol"
+        if trig == "var-mode-fixed-btn":
+            return "fixed"
+        cfg = (var_config or {}).get(strategy) or {}
+        return config_mode(cfg)
+
+    @app.callback(
+        Output("var-vol-section", "style"),
+        Output("var-fixed-section", "style"),
+        Output("var-mode-vol-btn", "className"),
+        Output("var-mode-fixed-btn", "className"),
+        Output("btn-var-equal", "style"),
+        Input("store-var-mode", "data"),
+    )
+    def toggle_var_mode_sections(mode):
+        is_fixed = (mode == "fixed")
+        vol_style = {"display": "none"} if is_fixed else {}
+        fixed_style = {} if is_fixed else {"display": "none"}
+        vol_cls = "var-mode-btn" if is_fixed else "var-mode-btn active"
+        fixed_cls = "var-mode-btn active" if is_fixed else "var-mode-btn"
+        # Equal Weight only applies to the allocation (vol) mode.
+        equal_style = {"display": "none"} if is_fixed else {}
+        return vol_style, fixed_style, vol_cls, fixed_cls, equal_style
+
+    # ---- Render the whole config form (total input, switch, allocation rows,
+    # volume rows), seeded per strategy. Seeding via children (not via `.value`
+    # outputs) keeps the config<->inputs relationship acyclic: there is no
+    # `config -> value` edge, only `config -> children`, so the renderer's cycle
+    # check passes. Both mode row sets are always rendered; the inactive one is
+    # simply hidden by toggle_var_mode_sections.
     @app.callback(
         Output("var-total-container", "children"),
-        Output("var-switch-container", "children"),
         Output("var-alloc-rows", "children"),
+        Output("var-volume-rows", "children"),
         Input("store-selected-strategy", "data"),
         Input("store-var-modal-open", "data"),
         Input("btn-var-reset", "n_clicks"),
@@ -260,126 +339,198 @@ def register_var_callbacks(
                 "effective PnL.",
                 className="var-notice",
             )
-            return _total_input(None, disabled=True), _active_switch(False, disabled=True), notice
+            return _total_input(None, disabled=True), notice, []
 
         products = valid_product_columns(strategies.get(strategy))
         if not products:
             notice = html.Div("This strategy has no products to allocate.", className="var-notice")
-            return _total_input(None, disabled=True), _active_switch(False, disabled=True), notice
+            return _total_input(None, disabled=True), notice, []
 
         # Reset blanks the form directly (no config read -> no race with persist).
         cfg = {} if callback_context.triggered_id == "btn-var-reset" else ((var_config or {}).get(strategy) or {})
         allocations = cfg.get("allocations") or {}
-        rows = [var_alloc_row(p, allocations.get(p)) for p in products]
-        return _total_input(cfg.get("total_var")), _active_switch(bool(cfg.get("active"))), rows
+        volumes = cfg.get("volumes") or {}
+        alloc_rows = [var_alloc_row(p, allocations.get(p)) for p in products]
+        volume_rows = [var_volume_row(p, volumes.get(p)) for p in products]
+        return _total_input(cfg.get("total_var")), alloc_rows, volume_rows
 
-    # ---- Live validation + inline error indication ----
+    # ---- Live validation + the on/off Apply button (mode-aware, calm) ----
+    # The Apply button doubles as the on/off control: it reads "VaR Off" (and is
+    # always enabled) when scaling is already on, and "VaR On" (enabled only when
+    # the config is valid) when scaling is off. "Calm" validation: an empty field
+    # is *incomplete*, not invalid — no red on the % boxes; only the Total VaR
+    # field flags a hard error. The running "X% / 100%" total (green at 100%)
+    # signals balance.
     @app.callback(
         Output("var-alloc-total", "children"),
         Output("var-alloc-total", "className"),
-        Output("var-validation-msg", "children"),
         Output("btn-var-apply", "disabled"),
+        Output("btn-var-apply", "children"),
+        Output("btn-var-apply", "className"),
         Output("var-total-error", "children"),
         Output("var-total-input", "className"),
         Output({"type": "var-alloc-error", "product": ALL}, "children"),
         Output({"type": "var-alloc-input", "product": ALL}, "className"),
+        Output({"type": "var-volume-error", "product": ALL}, "children"),
+        Output({"type": "var-volume-input", "product": ALL}, "className"),
         Input({"type": "var-alloc-input", "product": ALL}, "value"),
         Input("var-total-input", "value"),
+        Input({"type": "var-volume-input", "product": ALL}, "value"),
+        Input("store-var-mode", "data"),
+        Input("store-var-config", "data"),
+        Input("store-selected-strategy", "data"),
         State({"type": "var-alloc-input", "product": ALL}, "id"),
+        State({"type": "var-volume-input", "product": ALL}, "id"),
     )
-    def validate_inputs(values, total_var, ids):
-        products = [i["product"] for i in ids]
-        if not products:
-            return "Total: —", "var-alloc-total", "Select a strategy to configure VaR.", True, "", "var-total-input", [], []
-        allocations = {i["product"]: v for i, v in zip(ids, values)}
-        verdict = validate_var_config(total_var, allocations, products)
+    def validate_inputs(alloc_values, total_var, volume_values, mode, var_config, strategy, alloc_ids, volume_ids):
+        mode = mode or "vol"
+        alloc_products = [i["product"] for i in alloc_ids]
+        volume_products = [i["product"] for i in volume_ids]
 
+        blank_alloc_err = ["" for _ in alloc_ids]
+        ok_alloc_cls = ["var-alloc-input" for _ in alloc_ids]
+        blank_vol_err = ["" for _ in volume_ids]
+        ok_vol_cls = ["var-alloc-input" for _ in volume_ids]
+
+        active = bool(
+            (var_config or {}).get(strategy, {}).get("active")
+        ) if (strategy and strategy != "Portfolio") else False
+        # The button reflects the *current* state (so reopening a configured
+        # strategy correctly shows "VaR On"), and a single click toggles it.
+        # When on it carries the accent-filled "active" styling.
+        label = "VaR On" if active else "VaR Off"
+        apply_cls = "var-action-btn var-apply-btn" + (" active" if active else "")
+
+        def _apply_state(valid: bool):
+            # Always allow turning off; only allow turning on when valid.
+            return (False if active else (not valid)), label, apply_cls
+
+        if not alloc_products and not volume_products:
+            disabled, lbl, cls = _apply_state(False)
+            return (
+                "0% / 100%", "var-alloc-total", disabled, lbl, cls,
+                "", "var-total-input", blank_alloc_err, ok_alloc_cls,
+                blank_vol_err, ok_vol_cls,
+            )
+
+        # A "real" error is anything other than the soft "Required" (empty) hint.
+        def _real(err: str) -> bool:
+            return bool(err) and err != "Required"
+
+        if mode == "fixed":
+            volumes = {i["product"]: v for i, v in zip(volume_ids, volume_values)}
+            verdict = validate_fixed_config(volumes, volume_products)
+            vol_err, vol_cls = [], []
+            for i in volume_ids:
+                err = verdict["row_errors"].get(i["product"], "")
+                bad = _real(err)
+                vol_err.append(err if bad else "")
+                vol_cls.append("var-alloc-input invalid" if bad else "var-alloc-input")
+            disabled, lbl, cls = _apply_state(verdict["ok"])
+            return (
+                "0% / 100%", "var-alloc-total", disabled, lbl, cls,
+                "", "var-total-input", blank_alloc_err, ok_alloc_cls,
+                vol_err, vol_cls,
+            )
+
+        # ---- Volatility (VaR budget) mode ----
+        allocations = {i["product"]: v for i, v in zip(alloc_ids, alloc_values)}
+        verdict = validate_var_config(total_var, allocations, alloc_products)
         sum_ok = (not verdict["row_errors"]) and abs(verdict["alloc_sum"] - 100.0) <= VAR_ALLOC_TOLERANCE
-        total_text = f"Total: {verdict['alloc_sum']:.2f}% / 100%"
-        total_cls = "var-alloc-total ok" if sum_ok else "var-alloc-total bad"
 
-        row_err = [verdict["row_errors"].get(i["product"], "") for i in ids]
-        input_cls = [
-            "var-alloc-input invalid" if i["product"] in verdict["row_errors"] else "var-alloc-input"
-            for i in ids
-        ]
-        total_err = verdict["total_error"] or ""
-        total_input_cls = "var-total-input invalid" if verdict["total_error"] else "var-total-input"
+        total_text = f"{verdict['alloc_sum']:.0f}% / 100%"
+        total_cls = "var-alloc-total ok" if sum_ok else "var-alloc-total"
+
+        # Allocation % boxes never turn red; the running total signals balance.
+        total_empty = total_var is None or total_var == ""
+        total_bad = bool(verdict["total_error"]) and not total_empty
+        total_err = verdict["total_error"] if total_bad else ""
+        total_input_cls = "var-total-input invalid" if total_bad else "var-total-input"
+
+        disabled, lbl, cls = _apply_state(verdict["ok"])
         return (
-            total_text, total_cls, verdict["message"], (not verdict["ok"]),
-            total_err, total_input_cls, row_err, input_cls,
+            total_text, total_cls, disabled, lbl, cls,
+            total_err, total_input_cls, blank_alloc_err, ok_alloc_cls,
+            blank_vol_err, ok_vol_cls,
         )
 
-    # ---- Equal-weight / Normalize helpers ----
+    # ---- Equal-weight helper ----
     @app.callback(
         Output({"type": "var-alloc-input", "product": ALL}, "value"),
         Input("btn-var-equal", "n_clicks"),
-        Input("btn-var-normalize", "n_clicks"),
-        State({"type": "var-alloc-input", "product": ALL}, "value"),
         State({"type": "var-alloc-input", "product": ALL}, "id"),
         prevent_initial_call=True,
     )
-    def fill_allocations(_equal_clicks, _norm_clicks, values, ids):
+    def fill_allocations(_equal_clicks, ids):
         products = [i["product"] for i in ids]
         if not products:
             return []
-        trig = callback_context.triggered_id
-        if trig == "btn-var-equal":
-            weights = equal_weight_allocations(products)
-        else:
-            current = {i["product"]: v for i, v in zip(ids, values)}
-            weights = normalize_allocations(current, products)
+        weights = equal_weight_allocations(products)
         return [round(weights.get(p, 0.0), 4) for p in products]
 
-    # ---- Persist config into the selected strategy's slot (per-strategy memory) ----
+    # ---- Persist config into the selected strategy's slot (per-strategy memory).
+    # Applying (or toggling the switch on/off) also closes the popup, since the
+    # change has been applied — there is nothing left to confirm. Reset leaves the
+    # popup open so the user can re-enter values.
     @app.callback(
         Output("store-var-config", "data"),
+        Output("store-var-modal-open", "data", allow_duplicate=True),
         Input("btn-var-apply", "n_clicks"),
-        Input("var-active-switch", "value"),
         Input("btn-var-reset", "n_clicks"),
+        State("store-var-mode", "data"),
         State("var-total-input", "value"),
         State({"type": "var-alloc-input", "product": ALL}, "value"),
         State({"type": "var-alloc-input", "product": ALL}, "id"),
+        State({"type": "var-volume-input", "product": ALL}, "value"),
+        State({"type": "var-volume-input", "product": ALL}, "id"),
         State("store-selected-strategy", "data"),
         State("store-var-config", "data"),
         prevent_initial_call=True,
     )
-    def persist_var_config(_apply, switch_value, _reset, total_var, values, ids, strategy, config):
+    def persist_var_config(
+        _apply, _reset, mode, total_var,
+        alloc_values, alloc_ids, volume_values, volume_ids, strategy, config,
+    ):
         if not strategy or strategy == "Portfolio":
-            return dash.no_update
+            return dash.no_update, dash.no_update
         config = dict(config or {})
-        products = [i["product"] for i in ids]
-        allocations = {i["product"]: v for i, v in zip(ids, values)}
+        mode = mode or "vol"
+        alloc_products = [i["product"] for i in alloc_ids]
+        volume_products = [i["product"] for i in volume_ids]
+        allocations = {i["product"]: v for i, v in zip(alloc_ids, alloc_values)}
+        volumes = {i["product"]: v for i, v in zip(volume_ids, volume_values)}
         trig = callback_context.triggered_id
+
+        if mode == "fixed":
+            mode_fields = {"mode": "fixed", "volumes": volumes}
+            mode_ok = validate_fixed_config(volumes, volume_products)["ok"]
+        else:
+            mode_fields = {"mode": "vol", "total_var": total_var, "allocations": allocations}
+            mode_ok = validate_var_config(total_var, allocations, alloc_products)["ok"]
 
         if trig == "btn-var-reset":
             if strategy in config:
                 config.pop(strategy, None)
-                return config
-            return dash.no_update
+                return config, dash.no_update  # keep the popup open after Reset
+            return dash.no_update, dash.no_update
 
+        # The Apply button is the single on/off control. If scaling is already on,
+        # clicking it turns it off; if it is off, clicking applies the current
+        # (valid) inputs and turns it on. Either way the popup closes.
         if trig == "btn-var-apply":
-            verdict = validate_var_config(total_var, allocations, products)
-            if not verdict["ok"]:
-                return dash.no_update
-            config[strategy] = {"total_var": total_var, "allocations": allocations, "active": True}
-            return config
-
-        if trig == "var-active-switch":
             existing = dict(config.get(strategy) or {})
-            desired = bool(switch_value)
-            # Break the seeding feedback loop: only write on a genuine change.
-            if existing and existing.get("active", False) == desired:
-                return dash.no_update
-            if not existing and not desired:
-                return dash.no_update
-            if not existing:
-                existing = {"total_var": total_var, "allocations": allocations}
-            existing["active"] = desired
+            if bool(existing.get("active")):
+                existing["active"] = False
+                config[strategy] = existing
+                return config, False  # turned off -> close
+            if not mode_ok:
+                return dash.no_update, dash.no_update
+            existing.update(mode_fields)  # preserve the other mode's saved inputs
+            existing["active"] = True
             config[strategy] = existing
-            return config
+            return config, False  # applied + turned on -> close
 
-        return dash.no_update
+        return dash.no_update, dash.no_update
 
     # ---- VaR tab: summary tables + pane/expand-button visibility ----
     @app.callback(
@@ -391,12 +542,14 @@ def register_var_callbacks(
         Output("var-summary-table", "columns"),
         Output("var-summary-table", "style_cell"),
         Output("var-summary-table", "style_header"),
-        Output("var-notice", "children"),
         Output("var-expand-table", "data"),
         Output("var-expand-table", "columns"),
         Output("var-expand-table", "style_cell"),
         Output("var-expand-table", "style_header"),
-        Output("var-expand-notice", "children"),
+        Output("var-summary-table", "style_data_conditional"),
+        Output("var-expand-table", "style_data_conditional"),
+        Output("store-var-rows", "data"),
+        Output("btn-var-open-from-tab", "style"),
         Input("custom-tabs", "active_tab"),
         Input("store-selected-strategy", "data"),
         Input("store-var-config", "data"),
@@ -407,22 +560,81 @@ def register_var_callbacks(
         header = metrics_header_style(theme)
         cell_lg = metrics_cell_style(theme, padding="12px 14px", min_width="140px")
         header_lg = metrics_header_style(theme, header_bg_dark="rgba(255,255,255,0.05)")
+        label_ids = {"product", "strategy"}
+
+        # The value heat-map is deliberately NOT applied to the VaR tables — it is
+        # reserved for the Key Metrics table.
+        base = table_data_conditional(label_ids=label_ids)
 
         if active_tab != "tab-var":
             # Show the chart + its expand button; hide the VaR pane + VaR expand.
             return (
                 {"display": "none"}, {}, {}, {"display": "none"},
-                [], [], cell, header, "",
-                [], [], cell_lg, header_lg, "",
+                [], [], cell, header,
+                [], [], cell_lg, header_lg,
+                base, base, {}, {},
             )
 
         if strategy == "Portfolio":
-            columns, rows, notice = _build_portfolio_summary(strategy_names, strategies, returns, var_config)
+            columns, rows, _ = _build_portfolio_summary(strategy_names, strategies, returns, var_config)
+            # VaR is configured per strategy, not for the Portfolio aggregate.
+            configure_style = {"display": "none"}
         else:
-            columns, rows, notice = _build_strategy_summary(strategy, strategies, returns, var_config)
+            columns, rows, _ = _build_strategy_summary(strategy, strategies, returns, var_config)
+            configure_style = {}
 
+        # Emit the REAL rows for the clientside dynamic-pad callback. The tables
+        # also get the real rows now so they render (and can be measured); the
+        # clientside callback then appends exactly enough blank rows to fill.
         return (
             {}, {"display": "none"}, {"display": "none"}, {},
-            rows, columns, cell, header, notice,
-            rows, columns, cell_lg, header_lg, notice,
+            rows, columns, cell, header,
+            rows, columns, cell_lg, header_lg,
+            base, base,
+            {"rows": rows, "columns": columns}, configure_style,
         )
+
+    # ---- Dynamic blank-row padding (clientside) ----
+    # Measure each table's container and append only as many blank "—" rows as
+    # are needed to fill the visible height (so the count adapts to the monitor
+    # size). Re-runs on data change, window resize, and expand-modal open.
+    app.clientside_callback(
+        """
+        function(varRows, winTick, expandOpen) {
+            const noup = window.dash_clientside.no_update;
+            const rows = (varRows && varRows.rows) || null;
+            const cols = (varRows && varRows.columns) || null;
+            function pad(wrapperSel, tableId) {
+                if (!rows || !cols) return;
+                const wrap = document.querySelector(wrapperSel);
+                let target = rows.length;
+                if (wrap && wrap.clientHeight > 8) {
+                    const headerEl = wrap.querySelector('.dt-table-container__row-0') ||
+                                     wrap.querySelector('thead');
+                    const bodyEl = wrap.querySelector('.dt-table-container__row-1') || wrap;
+                    const bodyRow = bodyEl.querySelector('tbody tr') || wrap.querySelector('tbody tr');
+                    const headerH = headerEl ? headerEl.getBoundingClientRect().height : 42;
+                    const rowH = (bodyRow ? bodyRow.getBoundingClientRect().height : 0) || 56;
+                    const avail = wrap.clientHeight - headerH;
+                    // floor with a 1px margin so the rows never overflow into a scrollbar.
+                    const fit = Math.floor((avail - 1) / rowH);
+                    target = Math.max(rows.length, fit);
+                }
+                const blank = {};
+                cols.forEach(function(c){ blank[c.id] = '—'; });
+                const out = rows.slice();
+                while (out.length < target) out.push(Object.assign({}, blank));
+                window.dash_clientside.set_props(tableId, {data: out});
+            }
+            pad('#var-summary-wrapper .var-summary-table-wrapper', 'var-summary-table');
+            if (expandOpen) {
+                pad('.var-expand-modal .var-summary-table-wrapper', 'var-expand-table');
+            }
+            return noup;
+        }
+        """,
+        Output("store-var-pad", "data"),
+        Input("store-var-rows", "data"),
+        Input("store-win-tick", "data"),
+        Input("store-var-expand-open", "data"),
+    )

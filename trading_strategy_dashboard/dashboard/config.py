@@ -112,3 +112,8 @@ VAR_Z: float = 1.645              # 95% one-tailed normal quantile (VaR95 = z * 
 VAR_WINDOW: int = 20              # rolling volatility window (trading days)
 VAR_ALLOC_TOLERANCE: float = 0.01  # allowed deviation of the allocation sum from 100 (%)
 DEFAULT_TOTAL_VAR: float = 10_000.0  # default Total VaR Allocation (currency)
+
+# Fixed-notional mode: instead of vol-targeting, each product's PnL is scaled by
+# a constant notional/volume (effective_pnl = volume * raw_pnl). No returns CSV
+# or rolling vol is needed — the constant multiplies the strategy's PnL column.
+DEFAULT_VOLUME: float = 100_000.0  # default per-product notional/volume

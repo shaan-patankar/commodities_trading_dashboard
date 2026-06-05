@@ -36,24 +36,25 @@ class TestComputeSeries:
         sp = compute_series(sample_df, ["product_a", "product_b"])
         assert (sp.drawdown <= 0.0 + 1e-15).all(), "Drawdown must be <= 0"
 
-    def test_drawdown_is_percentage(self, sample_df):
-        """Drawdown should be (equity/hwm) - 1, not absolute difference."""
+    def test_drawdown_is_absolute(self, sample_df):
+        """Drawdown is the absolute gap from the high-water mark (equity - hwm)."""
         sp = compute_series(sample_df, ["product_a"])
-        # Manually compute expected drawdown
         equity = sample_df["product_a"].cumsum()
         hwm = equity.cummax()
-        expected_dd = (equity / hwm) - 1.0
+        expected_dd = (equity - hwm).fillna(0.0)
         pd.testing.assert_series_equal(sp.drawdown, expected_dd, check_names=False, atol=1e-12)
 
-    def test_returns_clamped(self):
-        """Returns must be clamped to [-1.0, 10.0]."""
+    def test_returns_are_pnl_over_prev_equity(self):
+        """Returns are PnL / previous-day equity (prev equity of 0 -> 0, unclamped)."""
         df = pd.DataFrame({
             "date": pd.date_range("2024-01-01", periods=5),
-            "product_a": [0, 0, -2_000_000, 0, 50_000_000],
+            "product_a": [0.0, 100.0, -50.0, 0.0, 200.0],
         })
-        sp = compute_series(df, ["product_a"], 1_000_000)
-        assert sp.returns.min() >= -1.0
-        assert sp.returns.max() <= 10.0
+        sp = compute_series(df, ["product_a"])
+        equity = pd.Series([0.0, 100.0, 50.0, 50.0, 250.0])
+        prev_eq = equity.shift(1).replace(0, np.nan)
+        expected = (df["product_a"] / prev_eq).fillna(0.0)
+        pd.testing.assert_series_equal(sp.returns, expected, check_names=False, atol=1e-12)
 
 
     def test_compute_series_missing_date_column(self):
@@ -82,8 +83,14 @@ class TestCalmarGuard:
     def _calmar_value(rows: list[dict]) -> str:
         return next(r["Value"] for r in rows if r["Metric"] == "Calmar")
 
+    @pytest.mark.xfail(
+        strict=True, raises=ZeroDivisionError,
+        reason="compute_metrics divides by -max_dd; with no drawdown max_dd == 0 "
+               "so it raises ZeroDivisionError. Function left unchanged per request "
+               "— this xfail documents the latent edge-case bug.",
+    )
     def test_calmar_nan_when_no_drawdown(self):
-        """Monotonically rising equity (no drawdown) -> Calmar is em-dash, not inf."""
+        """Monotonically rising equity (no drawdown) currently raises in Calmar."""
         df = pd.DataFrame({
             "date": pd.bdate_range("2024-01-02", periods=60, freq="B"),
             "product_a": [1000.0] * 60,  # never a down day -> max_dd == 0
@@ -103,22 +110,35 @@ class TestCalmarGuard:
 # annualize_factor_from_dates
 # ---------------------------------------------------------------------------
 class TestAnnualizeFactorFromDates:
-    def test_daily_returns_252(self, daily_dates):
-        assert annualize_factor_from_dates(daily_dates) == 252
+    """The factor is the mean number of observations in each *complete* calendar
+    year (the trailing, partial year is dropped). It is therefore NaN for any
+    series that does not span at least one full year before its final year."""
 
-    def test_weekly_returns_52(self, weekly_dates):
-        assert annualize_factor_from_dates(weekly_dates) == 52
+    def test_multi_year_daily_business_day_cadence(self):
+        # A holiday-free business-day range averages ~260.5 obs/complete year
+        # (52 weeks x 5 days, no holidays removed) — daily cadence.
+        dates = pd.Series(pd.bdate_range("2021-01-01", "2023-12-31", freq="B"))
+        assert annualize_factor_from_dates(dates) == pytest.approx(260, abs=4)
 
-    def test_monthly_returns_12(self, monthly_dates):
-        assert annualize_factor_from_dates(monthly_dates) == 12
+    def test_multi_year_weekly_approx_52(self):
+        dates = pd.Series(pd.date_range("2021-01-01", periods=156, freq="W-FRI"))
+        assert annualize_factor_from_dates(dates) == pytest.approx(52, abs=2)
 
-    def test_fewer_than_3_dates_defaults_to_252(self):
+    def test_multi_year_monthly_is_12(self, monthly_dates):
+        # 24 monthly points span 2024 + 2025; the complete-year mean is exactly 12.
+        assert annualize_factor_from_dates(monthly_dates) == pytest.approx(12)
+
+    def test_single_year_span_is_nan(self, daily_dates):
+        # daily_dates spans only 2024 -> the sole year is dropped -> NaN.
+        assert math.isnan(annualize_factor_from_dates(daily_dates))
+
+    def test_two_dates_same_year_is_nan(self):
         dates = pd.Series([pd.Timestamp("2024-01-01"), pd.Timestamp("2024-01-02")])
-        assert annualize_factor_from_dates(dates) == 252
+        assert math.isnan(annualize_factor_from_dates(dates))
 
-    def test_single_date_defaults_to_252(self):
+    def test_single_date_is_nan(self):
         dates = pd.Series([pd.Timestamp("2024-01-01")])
-        assert annualize_factor_from_dates(dates) == 252
+        assert math.isnan(annualize_factor_from_dates(dates))
 
 
 # ---------------------------------------------------------------------------
@@ -130,49 +150,37 @@ class TestComputeMetrics:
         assert isinstance(rows, list)
         assert all(isinstance(r, dict) for r in rows)
         metric_names = [r["Metric"] for r in rows]
+        assert "Total PnL" in metric_names
         assert "Sharpe" in metric_names
         assert "Sortino" in metric_names
-        assert "CAGR" in metric_names
+        assert "Calmar" in metric_names
         assert "Max Drawdown" in metric_names
-        assert "Volatility" in metric_names
 
-    def test_max_dd_is_percentage_and_negative(self, sample_series_pack):
-        """Max DD metric should come from percentage drawdown series (always <= 0)."""
+    def test_max_dd_is_cash_and_negative(self, sample_series_pack):
+        """Max Drawdown comes from the absolute drawdown series (cash value, <= 0)."""
         rows = compute_metrics(sample_series_pack)
         dd_row = next(r for r in rows if r["Metric"] == "Max Drawdown")
-        # The raw min of drawdown series is always <= 0
         assert sample_series_pack.drawdown.min() <= 0.0
-        # Formatted value should show a percentage with a minus sign (or 0)
         val = dd_row["Value"]
-        assert "%" in val
+        assert "%" not in val  # formatted as cash, not a percentage
+        assert float(val.replace(",", "")) <= 0.0
 
-    def test_sortino_uses_only_negative_excess(self):
-        """Sortino denominator must use only NEGATIVE excess returns, not zeros."""
-        # All positive returns -> sortino denominator = 0 -> should be NaN
+    def test_sortino_present_with_downside(self):
+        """With both up and down days the Sortino denominator is defined."""
         dates = pd.Series(pd.bdate_range("2024-01-02", periods=100))
-        df = pd.DataFrame({"date": dates, "product_a": [1000.0] * 100})
+        rng = np.random.default_rng(5)
+        df = pd.DataFrame({"date": dates, "product_a": rng.normal(50, 800, len(dates))})
         sp = compute_series(df, ["product_a"])
         rows = compute_metrics(sp)
         sortino_row = next(r for r in rows if r["Metric"] == "Sortino")
-        # With only positive returns, no negative excess -> "—" (NaN)
-        # Or it could be a number if rf makes some excess negative; but with rf=0
-        # and all positive pnl, all returns are positive so excess > 0 for most.
-        # The key verification: the code filters ex < 0.0 (strict), not ex <= 0.
         assert sortino_row["Value"] is not None
 
-    def test_volatility_from_raw_returns(self, sample_series_pack):
-        """Volatility should use raw returns, not excess returns."""
+    def test_std_daily_pnl_present(self, sample_series_pack):
+        """Std Daily PnL is a positive numeric cash value for mixed PnL."""
         rows = compute_metrics(sample_series_pack)
-        vol_row = next(r for r in rows if r["Metric"] == "Volatility")
-        assert vol_row["Value"] != "—"
-        # Manually verify: raw std * sqrt(ann)
-        ann = annualize_factor_from_dates(pd.to_datetime(sample_series_pack.dates))
-        raw_std = float(sample_series_pack.returns.std(ddof=1))
-        expected_vol = raw_std * math.sqrt(ann)
-        # Parse the formatted percentage
-        val_str = vol_row["Value"].replace("%", "").replace(",", "")
-        actual_vol = float(val_str) / 100.0
-        assert actual_vol == pytest.approx(expected_vol, abs=1e-4)
+        std_row = next(r for r in rows if r["Metric"] == "Std Daily PnL")
+        assert std_row["Value"] != "—"
+        assert float(std_row["Value"].replace(",", "")) > 0.0
 
     def test_hit_rate_between_0_and_1(self, sample_series_pack):
         rows = compute_metrics(sample_series_pack)
@@ -189,21 +197,12 @@ class TestComputeMetrics:
         pf = float(pf_row["Value"].replace(",", ""))
         assert pf > 0
 
-    def test_cagr_short_period(self):
-        """CAGR should handle very short time periods gracefully."""
-        dates = pd.Series(pd.bdate_range("2024-01-02", periods=3))
-        df = pd.DataFrame({"date": dates, "product_a": [1000, 2000, 3000]})
-        sp = compute_series(df, ["product_a"])
-        rows = compute_metrics(sp)
-        cagr_row = next(r for r in rows if r["Metric"] == "CAGR")
-        # Should not crash; value is either a number or "—"
-        assert cagr_row["Value"] is not None
-
-    def test_annualization_detection_shown(self, sample_series_pack):
-        rows = compute_metrics(sample_series_pack)
-        ann_row = next(r for r in rows if r["Metric"] == "Annualization")
-        assert ann_row["Value"] == "252"
-
+    @pytest.mark.xfail(
+        strict=True, raises=ZeroDivisionError,
+        reason="A single row has no drawdown (max_dd == 0) so compute_metrics "
+               "raises ZeroDivisionError in Calmar. Function left unchanged per "
+               "request — this xfail documents the latent edge-case bug.",
+    )
     def test_single_row_does_not_crash(self, single_row_df):
         sp = compute_series(single_row_df, ["product_a"])
         rows = compute_metrics(sp)

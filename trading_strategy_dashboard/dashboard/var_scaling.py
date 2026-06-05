@@ -134,6 +134,51 @@ def validate_var_config(
     }
 
 
+def validate_fixed_config(
+    volumes: Dict[str, float],
+    products: List[str],
+) -> dict:
+    """Validate fixed-notional inputs and return a structured result for the UI.
+
+    Each product needs a numeric volume ``>= 0``; at least one must be ``> 0``.
+    There is no sum constraint (volumes are absolute, not percentages).
+
+    Returns a dict with:
+        ``ok``         -- True when every volume is valid and at least one is > 0.
+        ``row_errors`` -- ``{product: message}`` for invalid rows.
+        ``message``    -- a single consolidated status message.
+    """
+    volumes = volumes or {}
+
+    row_errors: Dict[str, str] = {}
+    n_positive = 0
+    for p in products:
+        raw = volumes.get(p)
+        if raw is None or raw == "":
+            row_errors[p] = "Required"
+            continue
+        v = _coerce_float(raw)
+        if v is None:
+            row_errors[p] = "Not a number"
+        elif v < 0:
+            row_errors[p] = "Must be ≥ 0"
+        elif v > 0:
+            n_positive += 1
+
+    ok = (not row_errors) and n_positive > 0 and len(products) > 0
+
+    if not products:
+        message = "No products to size."
+    elif row_errors:
+        message = "Fix the highlighted volume(s)."
+    elif n_positive == 0:
+        message = "Enter a volume greater than 0 for at least one product."
+    else:
+        message = "Ready to apply."
+
+    return {"ok": ok, "row_errors": row_errors, "message": message}
+
+
 # ---------------------------------------------------------------------------
 # Scaling engine
 # ---------------------------------------------------------------------------
@@ -219,6 +264,61 @@ def compute_var_scaled_frame(
     return scaled_df, diagnostics
 
 
+def compute_fixed_notional_frame(
+    strategy_df: pd.DataFrame,
+    products: List[str],
+    volumes: Dict[str, float],
+) -> Tuple[pd.DataFrame, dict]:
+    """Build a fixed-notional scaled-PnL frame for a single strategy.
+
+    Each product's effective PnL is simply ``volume * raw_pnl`` — a constant
+    multiplier applied to the strategy's own PnL column. No returns CSV, rolling
+    volatility or look-ahead shift is involved.
+
+    Args:
+        strategy_df: Strategy PnL frame (``"date"`` + per-product PnL columns).
+        products:    Products to size (restricted to real strategy columns).
+        volumes:     ``{product: notional}`` constant multipliers.
+
+    Returns:
+        ``(scaled_df, diagnostics)``. ``scaled_df`` has ``"date"`` + one scaled-PnL
+        column per usable product (structurally a PnL frame). ``diagnostics`` =
+        ``{"skipped": [...], "latest": {product: {volume, raw_pnl, scaled_pnl}}}``
+        where the ``raw_pnl``/``scaled_pnl`` reflect the most recent row.
+    """
+    diagnostics: dict = {"skipped": [], "latest": {}}
+
+    if strategy_df is None or "date" not in getattr(strategy_df, "columns", []):
+        return pd.DataFrame(columns=["date"]), diagnostics
+
+    products = valid_product_columns(strategy_df, products)
+    if not products:
+        return pd.DataFrame(columns=["date"]), diagnostics
+
+    ordered = strategy_df.sort_values("date").reset_index(drop=True)
+    scaled_cols: Dict[str, object] = {}
+
+    for p in products:
+        vol = _coerce_float(volumes.get(p))
+        if vol is None:
+            diagnostics["skipped"].append(p)
+            continue
+        raw = pd.to_numeric(ordered[p], errors="coerce").fillna(0.0)
+        scaled = raw * vol
+        scaled_cols[p] = scaled.to_numpy()
+        diagnostics["latest"][p] = {
+            "volume": float(vol),
+            "raw_pnl": float(raw.iloc[-1]) if len(raw) else float("nan"),
+            "scaled_pnl": float(scaled.iloc[-1]) if len(scaled) else float("nan"),
+        }
+
+    if not scaled_cols:
+        return pd.DataFrame(columns=["date"]), diagnostics
+
+    scaled_df = pd.DataFrame({"date": ordered["date"].to_numpy(), **scaled_cols})
+    return scaled_df, diagnostics
+
+
 def var_scaled_aggregate_series(
     strategy_df: pd.DataFrame,
     returns_df: pd.DataFrame,
@@ -239,6 +339,84 @@ def var_scaled_aggregate_series(
     value_cols = [c for c in scaled_df.columns if c != "date"]
     agg = scaled_df[value_cols].sum(axis=1)
     return pd.DataFrame({"date": scaled_df["date"].to_numpy(), "pnl": agg.to_numpy()})
+
+
+# ---------------------------------------------------------------------------
+# Unified mode dispatch (vol-targeting vs fixed notional)
+# ---------------------------------------------------------------------------
+
+def config_mode(cfg: Optional[dict]) -> str:
+    """Return the scaling mode for a strategy config (``"vol"`` or ``"fixed"``).
+
+    Defaults to ``"vol"`` for backward compatibility with configs saved before
+    fixed-notional mode existed.
+    """
+    return ((cfg or {}).get("mode")) or "vol"
+
+
+def config_is_valid(cfg: Optional[dict], returns_df: Optional[pd.DataFrame], products: List[str]) -> bool:
+    """True when *cfg* would produce a usable scaled frame for *products*.
+
+    Vol mode additionally requires a returns frame; fixed mode does not.
+    """
+    cfg = cfg or {}
+    if config_mode(cfg) == "fixed":
+        return validate_fixed_config(cfg.get("volumes", {}), products)["ok"]
+    if returns_df is None:
+        return False
+    return validate_var_config(cfg.get("total_var"), cfg.get("allocations", {}), products)["ok"]
+
+
+def effective_scaled_frame(
+    strategy_df: pd.DataFrame,
+    returns_df: Optional[pd.DataFrame],
+    products: List[str],
+    cfg: Optional[dict],
+) -> Tuple[pd.DataFrame, str]:
+    """Resolve an active config to a scaled PnL frame and a title suffix.
+
+    Returns ``(scaled_df, suffix)`` when the config is active and valid for the
+    selected mode, else ``(empty_frame, "")``. The frame is structurally a PnL
+    frame, so the existing equity/drawdown/metrics engine consumes it unchanged.
+    """
+    empty = pd.DataFrame(columns=["date"])
+    cfg = cfg or {}
+    if not bool(cfg.get("active")):
+        return empty, ""
+
+    if config_mode(cfg) == "fixed":
+        if not validate_fixed_config(cfg.get("volumes", {}), products)["ok"]:
+            return empty, ""
+        frame, _ = compute_fixed_notional_frame(strategy_df, products, cfg.get("volumes", {}))
+        return (frame, " (Fixed notional)") if not frame.empty else (empty, "")
+
+    if returns_df is None:
+        return empty, ""
+    if not validate_var_config(cfg.get("total_var"), cfg.get("allocations", {}), products)["ok"]:
+        return empty, ""
+    frame, _ = compute_var_scaled_frame(
+        strategy_df, returns_df, products, cfg.get("total_var"), cfg.get("allocations", {})
+    )
+    return (frame, " (VaR-scaled)") if not frame.empty else (empty, "")
+
+
+def effective_aggregate_series(
+    strategy_df: pd.DataFrame,
+    returns_df: Optional[pd.DataFrame],
+    products: List[str],
+    cfg: Optional[dict],
+) -> pd.DataFrame:
+    """Return ``["date", "pnl"]`` — the summed scaled PnL for an active config.
+
+    Mode-aware wrapper used to stack a strategy's effective contribution into the
+    portfolio frame. Empty frame when scaling is unavailable/inactive.
+    """
+    frame, _ = effective_scaled_frame(strategy_df, returns_df, products, cfg)
+    if frame.empty:
+        return pd.DataFrame(columns=["date", "pnl"])
+    value_cols = [c for c in frame.columns if c != "date"]
+    agg = frame[value_cols].sum(axis=1)
+    return pd.DataFrame({"date": frame["date"].to_numpy(), "pnl": agg.to_numpy()})
 
 
 def portfolio_effective_dataframe(
@@ -270,17 +448,13 @@ def portfolio_effective_dataframe(
         cfg = var_configs.get(strategy) or {}
         returns_df = returns.get(strategy)
         used_scaled = False
+        mode = config_mode(cfg)
 
-        if bool(cfg.get("active")) and returns_df is not None:
-            verdict = validate_var_config(cfg.get("total_var"), cfg.get("allocations", {}), products)
-            if verdict["ok"]:
-                agg = var_scaled_aggregate_series(
-                    df, returns_df, products,
-                    cfg.get("total_var"), cfg.get("allocations", {}),
-                )
-                if not agg.empty:
-                    frames.append(agg.rename(columns={"pnl": strategy}))
-                    used_scaled = True
+        if bool(cfg.get("active")):
+            agg = effective_aggregate_series(df, returns_df, products, cfg)
+            if not agg.empty:
+                frames.append(agg.rename(columns={"pnl": strategy}))
+                used_scaled = True
 
         if not used_scaled:
             frame = df[["date"]].copy()
@@ -289,7 +463,8 @@ def portfolio_effective_dataframe(
 
         breakdown[strategy] = {
             "var_on": used_scaled,
-            "total_var": (_coerce_float(cfg.get("total_var")) if used_scaled else None),
+            "mode": mode if used_scaled else None,
+            "total_var": (_coerce_float(cfg.get("total_var")) if (used_scaled and mode == "vol") else None),
             "n_products": len(products),
         }
 

@@ -342,37 +342,61 @@ def correlation_matrix_figure(df: pd.DataFrame, products: List[str], title: str 
     corr = returns_df.corr()
 
     labels = [format_product_label(p) for p in valid]
+    n = len(labels)
 
     fig = go.Figure(
         data=go.Heatmap(
             z=corr.values,
             x=labels,
             y=labels,
-            colorscale=[[0.0, "#6b0f1a"], [0.5, "#1b1f2a"], [1.0, "#2ed47a"]],
+            # Vivid diverging scale that pops on the dark canvas: a punchy rose
+            # for negative, a deep slate at zero (so the grid reads), and a vivid
+            # mint for positive. Endpoints stay rich enough for legible white text.
+            colorscale=[
+                [0.0, "#e0566b"],
+                [0.27, "#7a3340"],
+                [0.5, "#151b29"],
+                [0.73, "#1f9d63"],
+                [1.0, "#2bd07e"],
+            ],
             zmid=0,
             zmin=-1,
             zmax=1,
-            hovertemplate="%{y} vs %{x}<br>Corr: %{z:.2f}<extra></extra>",
+            xgap=6,
+            ygap=6,
+            hovertemplate="%{y}  vs  %{x}<br>Correlation: %{z:.2f}<extra></extra>",
             text=np.round(corr.values, 2),
             texttemplate="%{text:.2f}",
-            textfont=dict(size=11, color="#e6e6e6"),
+            textfont=dict(size=12.5, color="#f3f6fb", family="Inter, 'Segoe UI', system-ui"),
             colorbar=dict(
-                thickness=8,
-                len=0.82,
+                thickness=10,
+                len=0.9,
                 y=0.5,
                 yanchor="middle",
-                x=1.02,
+                x=1.015,
                 xanchor="left",
-                tickfont=dict(color="#e6e6e6", size=10),
                 outlinewidth=0,
+                tickfont=dict(color="#9aa4b8", size=10),
+                tickvals=[-1, -0.5, 0, 0.5, 1],
+                ticks="",
+                ticklabelposition="outside",
             ),
         )
     )
     fig.update_layout(
-        **base_layout_kwargs(title, margin=dict(l=28, r=28, t=40, b=40), hovermode="closest"),
+        **base_layout_kwargs(title, margin=dict(l=8, r=8, t=20, b=8), hovermode="closest"),
     )
-    fig.update_xaxes(title=None, constrain="domain", automargin=True, side="bottom")
-    fig.update_yaxes(title=None, scaleanchor="x", scaleratio=1, automargin=True, autorange="reversed")
+    # Fill the panel (no rigid 1:1 lock) so the matrix sits flush and stays fully
+    # zoom/pan-interactive in the full-screen modal; thin tick labels, no axis lines.
+    tickangle = 0 if n <= 3 else -28
+    fig.update_xaxes(
+        title=None, automargin=True, side="bottom", showgrid=False, zeroline=False,
+        ticks="", tickangle=tickangle, tickfont=dict(color="#aeb7c7", size=11.5),
+    )
+    fig.update_yaxes(
+        title=None, automargin=True, autorange="reversed", showgrid=False, zeroline=False,
+        ticks="", tickfont=dict(color="#aeb7c7", size=11.5),
+    )
     return fig
 
 

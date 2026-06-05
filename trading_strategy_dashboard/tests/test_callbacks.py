@@ -5,6 +5,7 @@ These exercise the pure metrics-table builders directly (no Dash app needed).
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -13,10 +14,14 @@ from dashboard.callbacks import build_metrics_table, build_portfolio_metrics_tab
 
 @pytest.fixture
 def products_df():
+    # Mixed-sign daily PnL so the equity curve has real drawdowns; constant
+    # positive PnL would give max_dd == 0 and trip compute_metrics' Calmar divide.
+    rng = np.random.default_rng(0)
+    n = 40
     return pd.DataFrame({
-        "date": pd.bdate_range("2024-01-02", periods=40, freq="B"),
-        "Brent_M3": [100.0] * 40,
-        "Gasoil_M3": [50.0] * 40,
+        "date": pd.bdate_range("2024-01-02", periods=n, freq="B"),
+        "Brent_M3": rng.normal(100, 500, n),
+        "Gasoil_M3": rng.normal(50, 300, n),
     })
 
 
@@ -48,10 +53,13 @@ class TestBuildMetricsTable:
 class TestBuildPortfolioMetricsTable:
     @pytest.fixture
     def portfolio_df(self):
+        # Mixed-sign PnL so the equity curve drawsdown (avoids the Calmar divide).
+        rng = np.random.default_rng(1)
+        n = 40
         return pd.DataFrame({
-            "date": pd.bdate_range("2024-01-02", periods=40, freq="B"),
-            "Momentum": [100.0] * 40,
-            "Carry": [40.0] * 40,
+            "date": pd.bdate_range("2024-01-02", periods=n, freq="B"),
+            "Momentum": rng.normal(100, 500, n),
+            "Carry": rng.normal(40, 300, n),
         })
 
     def test_all_strategies_column(self, portfolio_df):

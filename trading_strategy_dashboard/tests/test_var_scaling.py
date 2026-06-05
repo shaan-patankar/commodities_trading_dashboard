@@ -12,10 +12,16 @@ from dashboard.analytics import compute_series
 from dashboard.config import VAR_WINDOW, VAR_Z
 from dashboard.data import portfolio_dataframe
 from dashboard.var_scaling import (
+    compute_fixed_notional_frame,
     compute_var_scaled_frame,
+    config_is_valid,
+    config_mode,
+    effective_aggregate_series,
+    effective_scaled_frame,
     equal_weight_allocations,
     normalize_allocations,
     portfolio_effective_dataframe,
+    validate_fixed_config,
     validate_var_config,
     var_scaled_aggregate_series,
 )
@@ -197,6 +203,160 @@ class TestPortfolioEffectiveDataframe:
         # allocations don't sum to 100 -> invalid -> raw
         cfg = {"S1": {"total_var": 10000, "allocations": {"Brent_M3": 10, "Gasoil_M3": 10}, "active": True}}
         merged, breakdown = portfolio_effective_dataframe(strategies, returns, ["S1"], cfg)
+        assert breakdown["S1"]["var_on"] is False
+        raw = sample_strategy_df[["Brent_M3", "Gasoil_M3"]].sum(axis=1)
+        np.testing.assert_allclose(merged["S1"].to_numpy(), raw.to_numpy())
+
+
+# ---------------------------------------------------------------------------
+# Fixed-notional validation
+# ---------------------------------------------------------------------------
+class TestValidateFixedConfig:
+    PRODUCTS = ["a", "b"]
+
+    def test_valid(self):
+        v = validate_fixed_config({"a": 100000, "b": 50000}, self.PRODUCTS)
+        assert v["ok"] is True
+        assert v["row_errors"] == {}
+
+    def test_zero_volumes_allowed_if_one_positive(self):
+        v = validate_fixed_config({"a": 100000, "b": 0}, self.PRODUCTS)
+        assert v["ok"] is True
+
+    def test_all_zero_invalid(self):
+        v = validate_fixed_config({"a": 0, "b": 0}, self.PRODUCTS)
+        assert v["ok"] is False
+
+    def test_negative_invalid(self):
+        v = validate_fixed_config({"a": -1, "b": 100}, self.PRODUCTS)
+        assert v["ok"] is False
+        assert "a" in v["row_errors"]
+
+    def test_non_numeric_invalid(self):
+        v = validate_fixed_config({"a": "xyz", "b": 100}, self.PRODUCTS)
+        assert v["ok"] is False
+        assert v["row_errors"].get("a") == "Not a number"
+
+    def test_missing_required(self):
+        v = validate_fixed_config({"a": 100}, self.PRODUCTS)
+        assert v["ok"] is False
+        assert v["row_errors"].get("b") == "Required"
+
+    def test_no_products(self):
+        v = validate_fixed_config({}, [])
+        assert v["ok"] is False
+
+
+# ---------------------------------------------------------------------------
+# compute_fixed_notional_frame
+# ---------------------------------------------------------------------------
+class TestComputeFixedNotionalFrame:
+    def test_constant_multiplier(self, sample_strategy_df):
+        scaled, diag = compute_fixed_notional_frame(
+            sample_strategy_df, ["Brent_M3", "Gasoil_M3"], {"Brent_M3": 100000, "Gasoil_M3": 50000},
+        )
+        np.testing.assert_allclose(
+            scaled["Brent_M3"].to_numpy(),
+            sample_strategy_df["Brent_M3"].to_numpy() * 100000,
+        )
+        np.testing.assert_allclose(
+            scaled["Gasoil_M3"].to_numpy(),
+            sample_strategy_df["Gasoil_M3"].to_numpy() * 50000,
+        )
+        assert diag["latest"]["Brent_M3"]["volume"] == pytest.approx(100000)
+
+    def test_no_warmup_full_length(self, sample_strategy_df):
+        # Fixed mode has no rolling window -> every row is scaled (no zero warm-up).
+        scaled, _ = compute_fixed_notional_frame(
+            sample_strategy_df, ["Brent_M3"], {"Brent_M3": 100000},
+        )
+        assert len(scaled) == len(sample_strategy_df)
+
+    def test_missing_volume_skipped(self, sample_strategy_df):
+        scaled, diag = compute_fixed_notional_frame(
+            sample_strategy_df, ["Brent_M3", "Gasoil_M3"], {"Brent_M3": 100000},
+        )
+        assert "Gasoil_M3" in diag["skipped"]
+        assert "Gasoil_M3" not in scaled.columns
+        assert "Brent_M3" in scaled.columns
+
+    def test_no_returns_csv_needed(self, sample_strategy_df):
+        # Fixed mode never touches a returns frame; only the PnL frame is used.
+        scaled, _ = compute_fixed_notional_frame(sample_strategy_df, ["Brent_M3"], {"Brent_M3": 100000})
+        assert not scaled.empty
+
+    def test_all_skipped_returns_empty(self, sample_strategy_df):
+        scaled, _ = compute_fixed_notional_frame(sample_strategy_df, ["Brent_M3"], {})
+        assert scaled.empty
+
+    def test_feeds_compute_series(self, sample_strategy_df):
+        scaled, _ = compute_fixed_notional_frame(
+            sample_strategy_df, ["Brent_M3", "Gasoil_M3"], {"Brent_M3": 100000, "Gasoil_M3": 100000},
+        )
+        sp = compute_series(scaled, ["Brent_M3", "Gasoil_M3"])
+        assert len(sp.equity) == len(scaled)
+
+
+# ---------------------------------------------------------------------------
+# Unified mode dispatch
+# ---------------------------------------------------------------------------
+class TestEffectiveDispatch:
+    def test_mode_default_is_vol(self):
+        assert config_mode({}) == "vol"
+        assert config_mode({"mode": "fixed"}) == "fixed"
+        assert config_mode(None) == "vol"
+
+    def test_inactive_returns_empty(self, sample_strategy_df, sample_returns_df):
+        cfg = {"mode": "fixed", "volumes": {"Brent_M3": 100000}, "active": False}
+        frame, suffix = effective_scaled_frame(sample_strategy_df, sample_returns_df, ["Brent_M3"], cfg)
+        assert frame.empty and suffix == ""
+
+    def test_fixed_dispatch(self, sample_strategy_df):
+        cfg = {"mode": "fixed", "volumes": {"Brent_M3": 100000, "Gasoil_M3": 100000}, "active": True}
+        frame, suffix = effective_scaled_frame(sample_strategy_df, None, ["Brent_M3", "Gasoil_M3"], cfg)
+        assert not frame.empty
+        assert suffix == " (Fixed notional)"
+
+    def test_vol_dispatch(self, sample_strategy_df, sample_returns_df):
+        cfg = {"mode": "vol", "total_var": 10000, "allocations": {"Brent_M3": 50, "Gasoil_M3": 50}, "active": True}
+        frame, suffix = effective_scaled_frame(sample_strategy_df, sample_returns_df, ["Brent_M3", "Gasoil_M3"], cfg)
+        assert not frame.empty
+        assert suffix == " (VaR-scaled)"
+
+    def test_vol_without_returns_inert(self, sample_strategy_df):
+        cfg = {"mode": "vol", "total_var": 10000, "allocations": {"Brent_M3": 50, "Gasoil_M3": 50}, "active": True}
+        frame, suffix = effective_scaled_frame(sample_strategy_df, None, ["Brent_M3", "Gasoil_M3"], cfg)
+        assert frame.empty and suffix == ""
+
+    def test_config_is_valid_fixed_no_returns(self, sample_strategy_df):
+        cfg = {"mode": "fixed", "volumes": {"Brent_M3": 100000, "Gasoil_M3": 100000}, "active": True}
+        assert config_is_valid(cfg, None, ["Brent_M3", "Gasoil_M3"]) is True
+
+    def test_effective_aggregate_fixed(self, sample_strategy_df):
+        cfg = {"mode": "fixed", "volumes": {"Brent_M3": 100000, "Gasoil_M3": 100000}, "active": True}
+        agg = effective_aggregate_series(sample_strategy_df, None, ["Brent_M3", "Gasoil_M3"], cfg)
+        expected = sample_strategy_df[["Brent_M3", "Gasoil_M3"]].sum(axis=1) * 100000
+        np.testing.assert_allclose(agg["pnl"].to_numpy(), expected.to_numpy())
+
+
+# ---------------------------------------------------------------------------
+# Portfolio effective frame — fixed-notional path
+# ---------------------------------------------------------------------------
+class TestPortfolioFixedMode:
+    def test_fixed_active_uses_scaled_without_returns(self, sample_strategy_df):
+        strategies = {"S1": sample_strategy_df}
+        cfg = {"S1": {"mode": "fixed", "volumes": {"Brent_M3": 100000, "Gasoil_M3": 100000}, "active": True}}
+        merged, breakdown = portfolio_effective_dataframe(strategies, {}, ["S1"], cfg)
+        assert breakdown["S1"]["var_on"] is True
+        assert breakdown["S1"]["mode"] == "fixed"
+        assert breakdown["S1"]["total_var"] is None
+        expected = sample_strategy_df[["Brent_M3", "Gasoil_M3"]].sum(axis=1) * 100000
+        np.testing.assert_allclose(merged["S1"].to_numpy(), expected.to_numpy())
+
+    def test_fixed_all_zero_falls_back_to_raw(self, sample_strategy_df):
+        strategies = {"S1": sample_strategy_df}
+        cfg = {"S1": {"mode": "fixed", "volumes": {"Brent_M3": 0, "Gasoil_M3": 0}, "active": True}}
+        merged, breakdown = portfolio_effective_dataframe(strategies, {}, ["S1"], cfg)
         assert breakdown["S1"]["var_on"] is False
         raw = sample_strategy_df[["Brent_M3", "Gasoil_M3"]].sum(axis=1)
         np.testing.assert_allclose(merged["S1"].to_numpy(), raw.to_numpy())

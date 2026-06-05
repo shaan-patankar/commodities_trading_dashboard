@@ -25,7 +25,12 @@ from dashboard.analytics import (
     range_cycle_label,
 )
 from dashboard.config import BASE_FONT, DEFAULT_RF, DEFAULT_ROLL_WINDOW, PANEL_KEYS
-from dashboard.table_styles import metrics_cell_style, metrics_header_style
+from dashboard.table_styles import (
+    LOWER_IS_BETTER,
+    metrics_cell_style,
+    metrics_header_style,
+    table_data_conditional,
+)
 from dashboard.data import portfolio_dataframe, products_for_strategy
 from dashboard.figures import (
     correlation_matrix_figure,
@@ -39,9 +44,8 @@ from dashboard.figures import (
 from dashboard.utils import format_product_label
 from dashboard.var_callbacks import register_var_callbacks
 from dashboard.var_scaling import (
-    compute_var_scaled_frame,
+    effective_scaled_frame,
     portfolio_effective_dataframe,
-    validate_var_config,
 )
 
 
@@ -426,6 +430,49 @@ def register_callbacks(
             metrics_cell_style(theme),
             metrics_header_style(theme),
         )
+
+    # ================================================================
+    # Value heat-map overlay (Settings toggle)
+    # ================================================================
+
+    @app.callback(
+        Output("store-table-heatmap", "data"),
+        Output("btn-toggle-heatmap", "children"),
+        Output("btn-toggle-heatmap", "className"),
+        Input("btn-toggle-heatmap", "n_clicks"),
+        Input("btn-reset-layout", "n_clicks"),
+        State("store-table-heatmap", "data"),
+        prevent_initial_call=True,
+    )
+    def toggle_table_heatmap(_toggle_clicks, _reset_clicks, is_on):
+        """Flip the value heat-map overlay; reset turns it back off."""
+        if callback_context.triggered_id == "btn-reset-layout":
+            on = False
+        else:
+            on = not bool(is_on)
+        label = "Value Heatmap: On" if on else "Value Heatmap: Off"
+        cls = "settings-option-btn active" if on else "settings-option-btn"
+        return on, label, cls
+
+    @app.callback(
+        Output("metrics-table", "style_data_conditional"),
+        Output("metrics-modal-table", "style_data_conditional"),
+        Input("metrics-table", "data"),
+        Input("metrics-table", "columns"),
+        Input("store-table-heatmap", "data"),
+    )
+    def style_metrics_heatmap(data, columns, heatmap_on):
+        """Tint the Key Metrics cells (inline + modal) when the overlay is on.
+
+        Normalised per metric row so each metric's columns are compared against
+        each other (green = best); single-column views fall back to sign.
+        """
+        conditional = table_data_conditional(
+            data, columns,
+            label_ids={"Metric"}, orient="row",
+            lower_better=LOWER_IS_BETTER, heatmap_on=bool(heatmap_on),
+        )
+        return conditional, conditional
 
     # ================================================================
     # Panel visibility and layout mode
@@ -961,8 +1008,8 @@ def register_callbacks(
         if layout_value == "analytics":
             return "Rolling Sharpe", "Seasonality", "Rolling Correlation"
         if layout_value == "focused":
-            return "Equity & Drawdown Curve", "Custom Analytics", "Drawdown"
-        return "Equity Curve", "Custom Analytics", "Drawdown"
+            return "Equity & Drawdown Curve", "Analytics", "Drawdown"
+        return "Equity Curve", "Analytics", "Drawdown"
 
     def _resolve_context(strategy, selected_products, var_config) -> dict:
         """Resolve the frame + grouping for the current selection (memoized).
@@ -998,23 +1045,14 @@ def register_callbacks(
             df = strategies.get(strategy)
             all_products = products_for_strategy(strategies, strategy)
             sel = selected_products or ["ALL"]
-            var_scaled = False
+            suffix = ""
             if df is not None:
                 var_cfg = (var_config or {}).get(strategy) or {}
                 returns_df = returns.get(strategy)
-                if bool(var_cfg.get("active")) and returns_df is not None:
-                    verdict = validate_var_config(
-                        var_cfg.get("total_var"), var_cfg.get("allocations", {}), all_products
-                    )
-                    if verdict["ok"]:
-                        scaled_df, _ = compute_var_scaled_frame(
-                            df, returns_df, all_products,
-                            var_cfg.get("total_var"), var_cfg.get("allocations", {}),
-                        )
-                        if not scaled_df.empty:
-                            df = scaled_df
-                            all_products = [c for c in scaled_df.columns if c != "date"]
-                            var_scaled = True
+                scaled_df, suffix = effective_scaled_frame(df, returns_df, all_products, var_cfg)
+                if not scaled_df.empty:
+                    df = scaled_df
+                    all_products = [c for c in scaled_df.columns if c != "date"]
             products = all_products if ("ALL" in sel) else [p for p in sel if p in all_products]
             ctx = {
                 "empty": df is None,
@@ -1025,7 +1063,7 @@ def register_callbacks(
                 "use_agg": "ALL" in sel,
                 "agg_label": "All Products",
                 "label_fn": format_product_label,
-                "header": f"{strategy} Trading Strategy" + (" (VaR-scaled)" if var_scaled else ""),
+                "header": f"{strategy} Trading Strategy" + suffix,
                 "selected_products": sel,
             }
 
@@ -1036,9 +1074,32 @@ def register_callbacks(
 
     def _series(ctx, range_key):
         fdf = filter_df_by_range(ctx["df"], range_key)
+        return _series_from(ctx, fdf)
+
+    def _series_from(ctx, fdf):
+        """Build the label->SeriesPack mapping from an already-windowed frame."""
         if ctx["use_agg"]:
             return {ctx["agg_label"]: compute_series(fdf, ctx["cols"])}
         return {ctx["label_fn"](c): compute_series(fdf, [c]) for c in ctx["cols"]}
+
+    def _window_df(ctx, cycle_key, cal_value):
+        """Resolve a panel's working frame.
+
+        A calendar window ([lo, hi] row indices) takes precedence over the cycle
+        preset; a window spanning the full extent (or ``None``) defers to the
+        preset. Index-based slicing matches the shared resolved frame, so a
+        global window means the same dates across every panel.
+        """
+        df = ctx["df"]
+        if df is None:
+            return df
+        n = len(df)
+        if cal_value and n:
+            lo = max(0, min(int(cal_value[0]), n - 1))
+            hi = max(lo, min(int(cal_value[1]), n - 1))
+            if not (lo <= 0 and hi >= n - 1):
+                return df.iloc[lo:hi + 1]
+        return filter_df_by_range(df, cycle_key)
 
     def _finalize(fig, theme):
         fig.update_layout(autosize=True, margin=dict(l=14, r=14, t=40, b=22))
@@ -1073,8 +1134,9 @@ def register_callbacks(
         Input("store-equity-range", "data"),
         Input("store-theme", "data"),
         Input("store-var-config", "data"),
+        Input({"type": "cal-range", "panel": "equity"}, "data"),
     )
-    def update_equity(strategy, selected_products, layout_value, equity_range, theme, var_config):
+    def update_equity(strategy, selected_products, layout_value, equity_range, theme, var_config, cal_value):
         layout_value = layout_value or "default"
         ctx = _resolve_context(strategy, selected_products, var_config)
         if ctx["empty"]:
@@ -1082,16 +1144,16 @@ def register_callbacks(
                 placeholder_figure("Portfolio view", "Add your portfolio data to explore performance and analytics."),
                 theme,
             )
+        fdf = _window_df(ctx, equity_range, cal_value)
         if layout_value == "analytics":
-            fdf = filter_df_by_range(ctx["df"], equity_range)
             fig = rolling_sharpe_figure(
                 fdf, ctx["cols"], _WIN, "",
                 include_individuals=not ctx["use_agg"], include_aggregate=ctx["use_agg"],
             )
         else:
             combine = layout_value == "focused"
-            eq_series = _series(ctx, equity_range)
-            dd_series = _series(ctx, equity_range) if combine else None
+            eq_series = _series_from(ctx, fdf)
+            dd_series = _series_from(ctx, fdf) if combine else None
             fig = equity_figure(eq_series, "", drawdown_series=dd_series)
         return _finalize(fig, theme)
 
@@ -1104,17 +1166,18 @@ def register_callbacks(
         Input("store-drawdown-range", "data"),
         Input("store-theme", "data"),
         Input("store-var-config", "data"),
+        Input({"type": "cal-range", "panel": "drawdown"}, "data"),
     )
-    def update_drawdown(strategy, selected_products, layout_value, drawdown_range, theme, var_config):
+    def update_drawdown(strategy, selected_products, layout_value, drawdown_range, theme, var_config, cal_value):
         layout_value = layout_value or "default"
         ctx = _resolve_context(strategy, selected_products, var_config)
         if ctx["empty"]:
             return _finalize(placeholder_figure("Drawdowns will display once data is connected."), theme)
+        fdf = _window_df(ctx, drawdown_range, cal_value)
         if layout_value == "analytics":
-            fdf = filter_df_by_range(ctx["df"], drawdown_range)
             fig = rolling_correlation_figure(fdf, ctx["cols"], _WIN, "")
         else:
-            fig = drawdown_figure(_series(ctx, drawdown_range), "")
+            fig = drawdown_figure(_series_from(ctx, fdf), "")
         return _finalize(fig, theme)
 
     # ---- Custom analytics panel ----
@@ -1128,11 +1191,11 @@ def register_callbacks(
         Input("store-theme", "data"),
         Input("store-var-config", "data"),
         Input("store-corr-mode", "data"),
-        Input("corr-range-slider", "value"),
+        Input({"type": "cal-range", "panel": "custom"}, "data"),
     )
     def update_custom(
         strategy, selected_products, active_tab, layout_value, custom_range,
-        theme, var_config, corr_mode, corr_range,
+        theme, var_config, corr_mode, cal_value,
     ):
         layout_value = layout_value or "default"
         ctx = _resolve_context(strategy, selected_products, var_config)
@@ -1141,7 +1204,7 @@ def register_callbacks(
         # On the VaR tab the graph is hidden (summary table shown) -> skip the heavy build.
         if active_tab == "tab-var" and layout_value != "analytics":
             return _finalize(placeholder_figure("VaR Scaling", "Configure VaR scaling for this strategy."), theme)
-        fdf = filter_df_by_range(ctx["df"], custom_range)
+        fdf = _window_df(ctx, custom_range, cal_value)
         if layout_value == "analytics" or active_tab == "tab-season":
             fig = seasonality_figure(fdf, ctx["cols"], "")
         elif active_tab == "tab-roll":
@@ -1149,15 +1212,9 @@ def register_callbacks(
                 fdf, ctx["cols"], _WIN, "",
                 include_individuals=not ctx["use_agg"], include_aggregate=ctx["use_agg"],
             )
-        else:  # tab-corr -> static matrix (date-slider range) or rolling chart
+        else:  # tab-corr -> static matrix or rolling chart (both over the windowed frame)
             if (corr_mode or "matrix") == "matrix":
-                full = ctx["df"]
-                n = len(full)
-                rng = corr_range or [0, n - 1]
-                lo = max(0, min(int(rng[0]), max(0, n - 1)))
-                hi = max(lo, min(int(rng[1]), max(0, n - 1)))
-                sub = full.iloc[lo:hi + 1] if n else full
-                fig = correlation_matrix_figure(sub, ctx["cols"], "")
+                fig = correlation_matrix_figure(fdf, ctx["cols"], "")
             else:
                 fig = rolling_correlation_figure(fdf, ctx["cols"], _WIN, "")
         return _finalize(fig, theme)
@@ -1172,12 +1229,13 @@ def register_callbacks(
         Input("store-selected-products", "data"),
         Input("store-metrics-range", "data"),
         Input("store-var-config", "data"),
+        Input({"type": "cal-range", "panel": "metrics"}, "data"),
     )
-    def update_metrics(strategy, selected_products, metrics_range, var_config):
+    def update_metrics(strategy, selected_products, metrics_range, var_config, cal_value):
         ctx = _resolve_context(strategy, selected_products, var_config)
         if ctx["empty"]:
             return [], [], [], []
-        fdf = filter_df_by_range(ctx["df"], metrics_range)
+        fdf = _window_df(ctx, metrics_range, cal_value)
         if ctx["is_portfolio"]:
             cols, data = build_portfolio_metrics_table(ctx["selected_products"], ctx["all_cols"], fdf)
         else:
@@ -1209,82 +1267,258 @@ def register_callbacks(
                 marks[i] = str(y)
         return 0, n - 1, marks, [0, n - 1]
 
+    # Correlation view mode (static matrix <-> rolling) is toggled by
+    # double-clicking the "Correlation" tab itself — no separate buttons. A
+    # clientside listener flips store-corr-mode via set_props; default = matrix.
+    # Output goes to a benign prop (no_update) to avoid a store self-cycle.
+    app.clientside_callback(
+        """
+        function(activeTab) {
+            if (window.__corrMode === undefined) window.__corrMode = 'matrix';
+            if (!window.__corrDblBound) {
+                const tabs = document.querySelectorAll('#custom-tabs a, .custom-tabs a');
+                let bound = false;
+                tabs.forEach(function(a) {
+                    if (a.textContent.trim() === 'Correlation' && !a.__corrDbl) {
+                        a.__corrDbl = true;
+                        bound = true;
+                        a.addEventListener('dblclick', function(e) {
+                            e.preventDefault();
+                            const next = (window.__corrMode === 'matrix') ? 'rolling' : 'matrix';
+                            window.__corrMode = next;
+                            window.dash_clientside.set_props('store-corr-mode', {data: next});
+                        });
+                    }
+                });
+                if (bound) window.__corrDblBound = true;
+            }
+            // Close an open calendar bubble on any click outside it (and outside
+            // the calendar button, which manages its own toggle).
+            if (!window.__calOutsideBound) {
+                window.__calOutsideBound = true;
+                document.addEventListener('click', function(e) {
+                    const openPop = document.querySelector('.cal-popover.open');
+                    if (!openPop) return;
+                    if (openPop.contains(e.target)) return;
+                    if (e.target.closest && e.target.closest('.cal-btn')) return;
+                    const closeBtn = openPop.querySelector('.cal-pop-close');
+                    if (closeBtn) closeBtn.click();
+                });
+            }
+            // Debounced window-resize tick -> drives the VaR table's dynamic
+            // blank-row padding to re-fit when the viewport size changes.
+            if (!window.__winResizeBound) {
+                window.__winResizeBound = true;
+                let rt;
+                window.addEventListener('resize', function() {
+                    clearTimeout(rt);
+                    rt = setTimeout(function() {
+                        window.dash_clientside.set_props('store-win-tick',
+                            {data: (window.__winTick = (window.__winTick || 0) + 1)});
+                    }, 180);
+                });
+            }
+            return window.dash_clientside.no_update;
+        }
+        """,
+        Output("custom-tabs", "className"),
+        Input("custom-tabs", "active_tab"),
+    )
+
+    # ================================================================
+    # Per-panel calendar date-range popovers (local / global scope)
+    # ----------------------------------------------------------------
+    # Each panel header has a calendar button opening a small bubble with a
+    # two-handle date slider. A window slices that panel's frame by row index;
+    # in Global scope a window on any panel drives every panel (same dates,
+    # since all panels share the resolved frame).
+    # ================================================================
+
     @app.callback(
-        Output("store-corr-mode", "data"),
-        Input("corr-mode-matrix-btn", "n_clicks"),
-        Input("corr-mode-rolling-btn", "n_clicks"),
+        Output("store-daterange-scope", "data"),
+        Output("btn-daterange-scope", "children"),
+        Output("btn-daterange-scope", "className"),
+        Input("btn-daterange-scope", "n_clicks"),
+        Input("btn-reset-layout", "n_clicks"),
+        State("store-daterange-scope", "data"),
         prevent_initial_call=True,
     )
-    def set_corr_mode(_matrix_clicks, _rolling_clicks):
-        """Toggle the correlation view mode from the segmented buttons."""
-        return "rolling" if callback_context.triggered_id == "corr-mode-rolling-btn" else "matrix"
+    def toggle_daterange_scope(_toggle, _reset, scope):
+        """Flip local/global date-range scope; reset returns to local."""
+        if callback_context.triggered_id == "btn-reset-layout":
+            scope = "local"
+        else:
+            scope = "global" if (scope or "local") == "local" else "local"
+        label = "Date Range: Global" if scope == "global" else "Date Range: Local"
+        cls = "settings-option-btn active" if scope == "global" else "settings-option-btn"
+        return scope, label, cls
 
     @app.callback(
-        Output("corr-mode-matrix-btn", "className"),
-        Output("corr-mode-rolling-btn", "className"),
-        Input("store-corr-mode", "data"),
+        Output({"type": "cal-open", "panel": dash.ALL}, "data"),
+        Input({"type": "cal-btn", "panel": dash.ALL}, "n_clicks"),
+        Input({"type": "cal-close", "panel": dash.ALL}, "n_clicks"),
+        State({"type": "cal-open", "panel": dash.ALL}, "data"),
+        State({"type": "cal-open", "panel": dash.ALL}, "id"),
+        prevent_initial_call=True,
     )
-    def style_corr_mode_buttons(mode):
-        """Highlight the active segment of the Matrix/Rolling toggle."""
-        matrix_active = (mode or "matrix") == "matrix"
-        return (
-            "corr-mode-btn active" if matrix_active else "corr-mode-btn",
-            "corr-mode-btn" if matrix_active else "corr-mode-btn active",
-        )
+    def toggle_cal_popovers(_btns, _closes, opens, ids):
+        """Open the clicked panel's bubble (toggling), closing all others."""
+        trig = callback_context.triggered_id
+        result = []
+        for i, cid in enumerate(ids):
+            same = isinstance(trig, dict) and trig.get("panel") == cid["panel"]
+            if same and trig.get("type") == "cal-btn":
+                result.append(not bool(opens[i]))
+            else:
+                result.append(False)
+        return result
 
     @app.callback(
-        Output("correlation-controls", "style"),
-        Output("corr-range-wrapper", "style"),
-        Input("custom-tabs", "active_tab"),
-        Input("layout-radio", "value"),
-        Input("store-corr-mode", "data"),
+        Output({"type": "cal-pop", "panel": dash.ALL}, "className"),
+        Input({"type": "cal-open", "panel": dash.ALL}, "data"),
     )
-    def correlation_controls_visibility(active_tab, layout_value, mode):
-        """Show the controls only on the Correlation tab; the slider only in Matrix mode."""
-        on_corr_tab = active_tab == "tab-corr" and (layout_value or "default") != "analytics"
-        controls = {"display": "flex"} if on_corr_tab else {"display": "none"}
-        slider = {"display": "flex"} if (on_corr_tab and (mode or "matrix") == "matrix") else {"display": "none"}
-        return controls, slider
+    def cal_popover_class(opens):
+        return ["cal-popover open" if o else "cal-popover" for o in opens]
 
     @app.callback(
-        Output("corr-range-slider", "min"),
-        Output("corr-range-slider", "max"),
-        Output("corr-range-slider", "marks"),
-        Output("corr-range-slider", "value"),
+        Output({"type": "cal-btn", "panel": dash.ALL}, "className"),
+        Input({"type": "cal-open", "panel": dash.ALL}, "data"),
+    )
+    def cal_btn_class(opens):
+        """Highlight the calendar button only while its bubble is open (hover is CSS)."""
+        return ["cal-btn active" if o else "cal-btn" for o in opens]
+
+    @app.callback(
+        Output({"type": "cal-slider", "panel": dash.ALL}, "min"),
+        Output({"type": "cal-slider", "panel": dash.ALL}, "max"),
+        Output({"type": "cal-slider", "panel": dash.ALL}, "marks"),
+        Output({"type": "cal-slider", "panel": dash.ALL}, "value"),
+        Output({"type": "cal-range", "panel": dash.ALL}, "data"),
         Input("store-selected-strategy", "data"),
         Input("store-selected-products", "data"),
         Input("store-var-config", "data"),
-        Input("custom-tabs", "active_tab"),
+        State({"type": "cal-slider", "panel": dash.ALL}, "id"),
     )
-    def init_corr_slider(strategy, selected_products, var_config, active_tab):
-        """Configure the slider bounds/marks for the current frame.
+    def init_cal_sliders(strategy, selected_products, var_config, ids):
+        """Re-bound every slider to the current frame and clear any stale window.
 
-        The full-range *value* is only (re)set when the Correlation tab is active,
-        so switching strategies on other tabs does not re-trigger ``update_custom``.
+        The year tick labels are hidden via CSS — the live From/To readouts
+        (driven by ``drag_value``) show the current dates while dragging. We still
+        pass a tiny explicit ``marks`` dict (the two endpoints) rather than ``{}``,
+        because dcc treats a falsy ``marks`` as "auto-generate" and would emit one
+        mark per step (thousands of hidden DOM nodes).
         """
         ctx = _resolve_context(strategy, selected_products, var_config)
-        lo, hi, marks, value = _corr_slider_config(ctx)
-        if active_tab != "tab-corr":
-            return lo, hi, marks, dash.no_update
-        return lo, hi, marks, value
+        lo, hi, _marks, value = _corr_slider_config(ctx)
+        marks = {lo: "", hi: ""}
+        k = len(ids)
+        return [lo] * k, [hi] * k, [marks] * k, [value] * k, [None] * k
 
     @app.callback(
-        Output("corr-range-label", "children"),
-        Input("corr-range-slider", "value"),
+        Output({"type": "cal-range", "panel": dash.ALL}, "data", allow_duplicate=True),
+        Output({"type": "cal-slider", "panel": dash.ALL}, "value", allow_duplicate=True),
+        Input({"type": "cal-slider", "panel": dash.ALL}, "value"),
+        State({"type": "cal-slider", "panel": dash.ALL}, "id"),
+        State({"type": "cal-slider", "panel": dash.ALL}, "min"),
+        State({"type": "cal-slider", "panel": dash.ALL}, "max"),
+        State("store-daterange-scope", "data"),
+        prevent_initial_call=True,
+    )
+    def mirror_cal_ranges(values, ids, mins, maxs, scope):
+        """Write the dragged slider into its window store; mirror all when global.
+
+        A window spanning the full extent is stored as ``None`` (no filter).
+        """
+        trig = callback_context.triggered_id
+        k = len(ids)
+        idx = next(
+            (i for i, cid in enumerate(ids) if isinstance(trig, dict) and cid["panel"] == trig.get("panel")),
+            None,
+        )
+        if idx is None:
+            return [dash.no_update] * k, [dash.no_update] * k
+
+        v = values[idx]
+        mn, mx = mins[idx], maxs[idx]
+        if not v:
+            window = None
+        else:
+            lo, hi = int(v[0]), int(v[1])
+            window = None if (lo <= mn and hi >= mx) else [lo, hi]
+
+        if (scope or "local") == "global":
+            return [window] * k, [v] * k
+
+        ranges = [dash.no_update] * k
+        ranges[idx] = window
+        return ranges, [dash.no_update] * k
+
+    @app.callback(
+        Output({"type": "cal-from", "panel": dash.ALL}, "children"),
+        Output({"type": "cal-to", "panel": dash.ALL}, "children"),
+        Input({"type": "cal-slider", "panel": dash.ALL}, "value"),
+        Input({"type": "cal-slider", "panel": dash.ALL}, "drag_value"),
         State("store-selected-strategy", "data"),
         State("store-selected-products", "data"),
         State("store-var-config", "data"),
     )
-    def corr_range_label(value, strategy, selected_products, var_config):
-        """Show the selected date range as 'Mon YYYY – Mon YYYY'."""
+    def cal_labels(values, drag_values, strategy, selected_products, var_config):
+        """Feed each bubble's From / To readouts from its slider window.
+
+        While dragging, ``drag_value`` updates continuously (the committed
+        ``value`` — and hence the chart — only changes on release), so the
+        readouts track the handles live. On release/init the committed value is
+        used. Only the open bubble is visible, so stale drag values on the other
+        (hidden) panels don't matter.
+        """
+        trig = callback_context.triggered[0]["prop_id"] if callback_context.triggered else ""
+        dragging = trig.endswith(".drag_value")
         ctx = _resolve_context(strategy, selected_products, var_config)
         dates = _corr_dates(ctx)
-        if dates is None or not value:
-            return ""
-        n = len(dates)
-        lo = max(0, min(int(value[0]), n - 1))
-        hi = max(lo, min(int(value[1]), n - 1))
-        return f"{dates.iloc[lo]:%b %Y} – {dates.iloc[hi]:%b %Y}"
+        froms, tos = [], []
+        for v, dv in zip(values, drag_values):
+            use = dv if (dragging and dv) else v
+            if dates is None or not use:
+                froms.append("—")
+                tos.append("—")
+                continue
+            n = len(dates)
+            lo = max(0, min(int(use[0]), n - 1))
+            hi = max(lo, min(int(use[1]), n - 1))
+            froms.append(f"{dates.iloc[lo]:%b %Y}")
+            tos.append(f"{dates.iloc[hi]:%b %Y}")
+        return froms, tos
+
+    # Double-click the calendar button -> reset that panel's window to full
+    # (clientside so the rapid second click is caught by wall-clock timing).
+    app.clientside_callback(
+        """
+        function(nClicks, ids, mins, maxs, vals) {
+            const noup = (vals || []).map(function(){ return window.dash_clientside.no_update; });
+            const ctx = window.dash_clientside.callback_context;
+            if (!ctx || !ctx.triggered || !ctx.triggered.length) return noup;
+            const propId = ctx.triggered[0].prop_id;
+            let panel = null;
+            try { panel = JSON.parse(propId.split('.n_clicks')[0]).panel; } catch (e) { return noup; }
+            const now = Date.now();
+            window._calClick = window._calClick || {};
+            const last = window._calClick[panel] || 0;
+            window._calClick[panel] = now;
+            if (now - last < 350) {
+                const idx = ids.findIndex(function(id){ return id.panel === panel; });
+                if (idx >= 0) noup[idx] = [mins[idx], maxs[idx]];
+            }
+            return noup;
+        }
+        """,
+        Output({"type": "cal-slider", "panel": dash.ALL}, "value", allow_duplicate=True),
+        Input({"type": "cal-btn", "panel": dash.ALL}, "n_clicks"),
+        State({"type": "cal-slider", "panel": dash.ALL}, "id"),
+        State({"type": "cal-slider", "panel": dash.ALL}, "min"),
+        State({"type": "cal-slider", "panel": dash.ALL}, "max"),
+        State({"type": "cal-slider", "panel": dash.ALL}, "value"),
+        prevent_initial_call=True,
+    )
 
     # ================================================================
     # Lazy modal-graph population

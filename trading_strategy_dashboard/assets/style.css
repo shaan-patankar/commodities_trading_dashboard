@@ -269,16 +269,32 @@ html, body {
   transition: background 150ms ease, transform 150ms ease, box-shadow 150ms ease;
 }
 
-.equity-expand-btn:hover,
 .equity-close-btn:hover,
-.drawdown-expand-btn:hover,
 .drawdown-close-btn:hover,
-.metrics-expand-btn:hover,
 .metrics-close-btn:hover,
-.custom-analytics-expand-btn:hover,
 .custom-analytics-close-btn:hover {
   background: rgba(255,255,255,0.08);
   transform: translateY(-1px);
+}
+
+/* Header action controls (range pill + fullscreen) highlight accent-blue on
+   hover / focus / press — same language as the calendar button. */
+.range-toggle-btn:hover,
+.range-toggle-btn:focus-visible,
+.range-toggle-btn:active,
+.range-toggle-btn.active,
+.equity-expand-btn:hover,
+.equity-expand-btn:focus-visible,
+.drawdown-expand-btn:hover,
+.drawdown-expand-btn:focus-visible,
+.metrics-expand-btn:hover,
+.metrics-expand-btn:focus-visible,
+.custom-analytics-expand-btn:hover,
+.custom-analytics-expand-btn:focus-visible {
+  background: var(--accent-blue) !important;
+  border-color: var(--accent-blue) !important;
+  color: #ffffff !important;
+  box-shadow: 0 1px 10px var(--accent-blue-glow) !important;
 }
 
 .card-body-tight {
@@ -295,6 +311,14 @@ html, body {
 }
 
 /* ========== Graphs ========== */
+
+/* Full-screen (mirrored) Analytics graph: Plotly draws heatmap cells as an
+   <image>. In the mirrored modal copy that image can keep pointer-events:auto
+   and swallow zoom / pan / hover (the inline graph correctly has it as none).
+   Force it to none so the drag layer underneath stays interactive. */
+#custom-analytics-modal-graph image {
+  pointer-events: none !important;
+}
 
 .graph {
   width: 100%;
@@ -337,8 +361,11 @@ html, body {
 
 /* ========== Custom Analytics Tabs ========== */
 
-.custom-tabs .nav {
-  justify-content: center;
+/* The Tabs component renders the <ul> itself with class `custom-tabs`
+   (alongside `nav nav-tabs`), so target it directly — a descendant `.nav`
+   matches nothing. width:100% + space-between fans the pills edge-to-edge. */
+.custom-tabs {
+  justify-content: space-between;
   width: 100%;
 }
 
@@ -1681,12 +1708,12 @@ body:has(.app-root.theme-light) .offcanvas-backdrop {
 
 /* Modal shells */
 .var-modal {
-  width: min(560px, 94vw);
-  max-height: 88vh;
-  background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02));
-  border-radius: 24px;
+  width: min(520px, 94vw);
+  max-height: 90vh;
+  background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.015));
+  border-radius: 20px;
   border: 1px solid var(--border);
-  box-shadow: 0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.03);
+  box-shadow: 0 24px 70px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.03);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -1714,18 +1741,23 @@ body:has(.app-root.theme-light) .offcanvas-backdrop {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 14px 18px;
+  padding: 15px 20px;
   border-bottom: 1px solid var(--border);
-  background: rgba(255,255,255,0.05);
+  background: rgba(255,255,255,0.04);
+}
+
+.var-modal-header .fw-semibold {
+  font-size: 15.5px;
+  letter-spacing: -0.01em;
 }
 
 .var-modal-body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 16px 18px 18px;
-  background: rgba(0,0,0,0.24);
+  gap: 14px;
+  padding: 18px 20px;
+  background: rgba(0,0,0,0.22);
   overflow-y: auto;
 }
 
@@ -1746,71 +1778,156 @@ body:has(.app-root.theme-light) .offcanvas-backdrop {
 }
 
 .var-section-label {
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 700;
-  letter-spacing: 0.3px;
+  letter-spacing: 0.4px;
   text-transform: uppercase;
   color: var(--muted);
-  margin-top: 4px;
 }
 
-/* Total VaR field */
-.var-total-group {
+/* Total VaR field — label/error head over a full-width input. */
+.var-field {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.var-field-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
   gap: 10px;
 }
 
 .var-total-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--muted);
   margin: 0;
 }
 
 .var-total-input,
 .var-alloc-input {
-  background: rgba(255,255,255,0.04);
+  background: rgba(255,255,255,0.035);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 7px 11px;
-  font-size: 13px;
+  padding: 9px 12px;
+  font-size: 13.5px;
   font-family: 'Inter', 'Segoe UI', system-ui;
+  font-variant-numeric: tabular-nums;
   outline: none;
-  transition: border-color 140ms ease, box-shadow 140ms ease;
+  transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
 }
 
 .var-total-input {
-  width: 160px;
+  width: 100%;
 }
 
 .var-alloc-input {
-  width: 90px;
+  width: 84px;
   text-align: right;
+  padding: 7px 11px;
+}
+
+/* Fixed-notional volumes need room for larger figures. */
+.var-fixed-section .var-alloc-input {
+  width: 118px;
 }
 
 .var-total-input:focus,
 .var-alloc-input:focus {
-  border-color: var(--accent-blue);
-  box-shadow: 0 0 0 2px var(--accent-blue-glow);
+  border-color: rgba(255,255,255,0.28);
+  box-shadow: none;
+  background: rgba(255,255,255,0.05);
 }
 
 .var-total-input.invalid,
 .var-alloc-input.invalid {
   border-color: #ff6b6b;
-  box-shadow: 0 0 0 2px rgba(255,107,107,0.25);
+  box-shadow: none;
 }
 
-/* Allocation rows */
+/* Suppress Dash's built-in dcc.Input red outline on out-of-range / invalid
+   values (e.g. a % typed above max=100). Validity is conveyed by the running
+   total + meter, not by reddening the box. Our own `.invalid` class above still
+   flags the Total field's hard errors. */
+.var-total-input:invalid,
+.var-total-input:out-of-range,
+.var-alloc-input:invalid,
+.var-alloc-input:out-of-range {
+  outline: none !important;
+}
+
+.var-alloc-input:invalid,
+.var-alloc-input:out-of-range {
+  border-color: var(--border);
+  box-shadow: none;
+}
+
+/* Strip the native number-input spinner (the hover up/down stepper). */
+.var-total-input::-webkit-outer-spin-button,
+.var-total-input::-webkit-inner-spin-button,
+.var-alloc-input::-webkit-outer-spin-button,
+.var-alloc-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.var-total-input,
+.var-alloc-input {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+/* Allocation section header: label on the left, live total on the right. */
+.var-alloc-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.var-alloc-total {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: 0.2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.var-alloc-total.ok {
+  color: #2ed47a;
+}
+
+/* Allocation / volume rows — wrapped in a rounded bordered container with a
+   divider between each row, like a compact data table. Scrolls invisibly when
+   the product list is longer than the box (same treatment as the metrics table). */
 .var-alloc-rows {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  max-height: 320px;
+  gap: 0;
+  max-height: 300px;
   overflow-y: auto;
-  padding-right: 2px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255,255,255,0.02);
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.var-alloc-rows::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+/* No container chrome when there are no real rows (e.g. the Portfolio notice). */
+.var-alloc-rows:not(:has(.var-alloc-row)) {
+  border: none;
+  background: transparent;
 }
 
 .var-alloc-row {
@@ -1818,6 +1935,17 @@ body:has(.app-root.theme-light) .offcanvas-backdrop {
   grid-template-columns: 1fr auto auto;
   align-items: center;
   gap: 10px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border);
+  transition: background 120ms ease;
+}
+
+.var-alloc-row:last-child {
+  border-bottom: none;
+}
+
+.var-alloc-row:hover {
+  background: rgba(255,255,255,0.03);
 }
 
 .var-alloc-label {
@@ -1831,45 +1959,66 @@ body:has(.app-root.theme-light) .offcanvas-backdrop {
 .var-alloc-input-group {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
 }
 
-.var-alloc-pct {
-  font-size: 13px;
+.var-alloc-pct,
+.var-volume-unit {
+  font-size: 12.5px;
   color: var(--muted);
 }
 
 .var-row-error,
 .var-total-error {
-  font-size: 11.5px;
+  font-size: 11px;
   color: #ff6b6b;
   min-width: 0;
   white-space: nowrap;
 }
 
-.var-alloc-total {
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.var-alloc-total.ok {
-  color: #2ed47a;
-}
-
-.var-alloc-total.bad {
-  color: #ff6b6b;
-}
-
-.var-validation-msg {
-  font-size: 12.5px;
-  color: var(--muted);
-}
-
-.var-modal-actions {
+/* Footer action bar: Equal Weight / Reset / VaR On-Off pills, right-aligned.
+   Bleeds to the modal edges with a top divider so it reads as a defined bar. */
+.var-modal-footer {
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin: 4px -20px -18px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border);
+  background: rgba(0,0,0,0.18);
+}
+
+.var-footer-actions {
+  display: flex;
+  align-items: center;
   gap: 8px;
-  margin-top: 2px;
+}
+
+.var-switch-container .form-check {
+  margin: 0;
+  min-height: 0;
+}
+
+.var-switch-container .form-check-label,
+.var-switch-container label {
+  font-size: 13px;
+  color: var(--text);
+}
+
+/* Toggle in the dashboard accent blue (matches the product pills); no focus glow. */
+.var-switch-container .form-check-input {
+  cursor: pointer;
+}
+
+.var-switch-container .form-check-input:checked {
+  background-color: var(--accent-blue);
+  border-color: var(--accent-blue);
+}
+
+.var-switch-container .form-check-input:focus {
+  border-color: var(--accent-blue);
+  box-shadow: none;
 }
 
 .var-action-btn {
@@ -1878,15 +2027,33 @@ body:has(.app-root.theme-light) .offcanvas-backdrop {
   font-weight: 600;
 }
 
+/* Apply: same ghost pill as Reset by default; on hover / focus / press it fills
+   with the dashboard accent blue — exactly like the active product-selection
+   pills in the top bar. */
 .var-apply-btn {
   border-radius: 999px;
   font-size: 12px;
   font-weight: 700;
-  margin-left: auto;
+  padding-left: 20px;
+  padding-right: 20px;
 }
 
-.var-active-row {
-  margin-top: 2px;
+.var-apply-btn:not(:disabled):hover,
+.var-apply-btn:not(:disabled):focus-visible,
+.var-apply-btn:not(:disabled):active {
+  background: var(--accent-blue) !important;
+  border-color: var(--accent-blue) !important;
+  color: #eef4ff !important;
+  box-shadow: none !important;
+}
+
+/* On state: VaR is currently active — the button stays accent-filled so the
+   live status is obvious; clicking it toggles scaling back off. */
+.var-apply-btn.active {
+  background: var(--accent-blue) !important;
+  border-color: var(--accent-blue) !important;
+  color: #eef4ff !important;
+  box-shadow: none !important;
 }
 
 .var-notice {
@@ -1913,6 +2080,11 @@ body:has(.app-root.theme-light) .offcanvas-backdrop {
   min-height: 0;
 }
 
+/* The VaR summary table keeps fixed-height rows (like the Key Metrics table):
+   real rows sit at the top, the data is padded with blank "—" rows to fill the
+   box, and a long product list scrolls invisibly (the metrics-table-wrapper
+   already hides the scrollbar). No row stretching. */
+
 .var-configure-btn {
   align-self: flex-start;
 }
@@ -1936,7 +2108,6 @@ body:has(.app-root.theme-light) .offcanvas-backdrop {
   background: rgba(255,255,255,0.6);
 }
 
-.app-root.theme-light .var-total-label,
 .app-root.theme-light .var-alloc-label {
   color: #1a2233;
 }
@@ -1951,20 +2122,55 @@ body:has(.app-root.theme-light) .offcanvas-backdrop {
 .app-root.theme-light .var-total-input:focus,
 .app-root.theme-light .var-alloc-input:focus {
   border-color: var(--accent-blue);
+  background: #ffffff;
+}
+
+.app-root.theme-light .var-alloc-rows {
+  border-color: rgba(0,0,0,0.12);
+  background: rgba(0,0,0,0.02);
+}
+
+.app-root.theme-light .var-alloc-rows:not(:has(.var-alloc-row)) {
+  border: none;
+  background: transparent;
+}
+
+.app-root.theme-light .var-alloc-row {
+  border-bottom-color: rgba(0,0,0,0.07);
+}
+
+.app-root.theme-light .var-alloc-row:hover {
+  background: rgba(0,0,0,0.03);
+}
+
+.app-root.theme-light .var-alloc-meter {
+  background: rgba(0,0,0,0.08);
+}
+
+.app-root.theme-light .var-modal-footer {
+  background: rgba(0,0,0,0.03);
+  border-top-color: rgba(0,0,0,0.06);
 }
 
 .app-root.theme-light .var-modal-header .fw-semibold,
 .app-root.theme-light .var-expand-modal-header .fw-semibold,
-.app-root.theme-light .var-active-row .form-check-label,
-.app-root.theme-light .var-active-row label {
+.app-root.theme-light .var-switch-container .form-check-label,
+.app-root.theme-light .var-switch-container label {
   color: #1a2233 !important;
 }
 
 .app-root.theme-light .var-section-label,
+.app-root.theme-light .var-total-label,
+.app-root.theme-light .var-alloc-total,
 .app-root.theme-light .var-modal-subtitle,
 .app-root.theme-light .var-validation-msg,
 .app-root.theme-light .var-notice {
   color: rgba(26, 34, 51, 0.62);
+}
+
+/* Keep the balanced (100%) cue green in light mode too. */
+.app-root.theme-light .var-alloc-total.ok {
+  color: #16a34a;
 }
 
 /* ========== Correlation Controls (Custom Analytics) ========== */
@@ -2163,4 +2369,475 @@ body:has(.app-root.theme-light) .offcanvas-backdrop {
 
 .app-root.theme-light .corr-range-slider .rc-slider-mark-text-active {
   color: rgba(26, 34, 51, 0.85);
+}
+
+/* ===========================================================================
+   VaR scaling — mode toggle (Volatility vs Fixed notional) + fixed-notional UI
+   Appended; mirrors .corr-mode-* and the existing .var-* modal styling.
+   =========================================================================== */
+
+/* Container holding the mode toggle; separates it from the section below. */
+.var-mode-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 2px;
+}
+
+/* Segmented pill group wrapper — full-width, balanced two-up segments. */
+.var-mode-toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+
+/* Individual segment button (inactive default) — mirrors .corr-mode-btn. */
+.var-mode-btn {
+  flex: 1 1 0;
+  border-radius: 999px !important;
+  border: 1px solid transparent !important;
+  background: transparent !important;
+  color: var(--muted) !important;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  padding: 6px 14px;
+  line-height: 1.2;
+  box-shadow: none !important;
+  outline: none !important;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+.var-mode-btn:hover,
+.var-mode-btn:focus-visible {
+  color: var(--text) !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+}
+
+/* Active segment: accent-blue fill, white text — mirrors .corr-mode-btn.active. */
+.var-mode-btn.active,
+.var-mode-btn.active:hover,
+.var-mode-btn.active:focus-visible {
+  background: var(--accent-blue) !important;
+  color: #ffffff !important;
+  box-shadow: 0 1px 6px var(--accent-blue-glow) !important;
+}
+
+/* Layout wrappers — visibility toggled inline by callbacks; do NOT set display. */
+.var-fixed-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.var-vol-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Muted helper text — shares the look of .var-modal-subtitle. */
+.var-fixed-subtitle {
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+/* Small muted unit/hint label beside a volume input — mirrors .var-alloc-pct. */
+.var-volume-unit {
+  font-size: 13px;
+  color: var(--muted);
+  padding-left: 6px;
+}
+
+/* Helper button row inside the vol section — mirrors .var-modal-actions (tighter). */
+.var-vol-helpers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 0;
+}
+
+/* ---- Light mode overrides (scoped; never touch dark) ---- */
+.app-root.theme-light .var-mode-toggle {
+  border-color: rgba(0, 0, 0, 0.1);
+  background: rgba(0, 0, 0, 0.04);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.app-root.theme-light .var-mode-btn {
+  color: rgba(26, 34, 51, 0.6) !important;
+}
+
+.app-root.theme-light .var-mode-btn:hover,
+.app-root.theme-light .var-mode-btn:focus-visible {
+  color: #1a2233 !important;
+  background: rgba(0, 0, 0, 0.05) !important;
+}
+
+.app-root.theme-light .var-mode-btn.active,
+.app-root.theme-light .var-mode-btn.active:hover,
+.app-root.theme-light .var-mode-btn.active:focus-visible {
+  background: var(--accent-blue) !important;
+  color: #ffffff !important;
+}
+
+.app-root.theme-light .var-fixed-subtitle,
+.app-root.theme-light .var-volume-unit {
+  color: rgba(26, 34, 51, 0.62);
+}
+
+/* ========== Per-panel calendar date-range control ========== */
+
+/* Per-button anchor so the bubble + its pointer align to THIS button (not the
+   whole action row). inline-flex keeps it sitting inline with the other pills. */
+.cal-control {
+  position: relative;
+  display: inline-flex;
+}
+
+/* Calendar button: same round footprint as the ⛶ expand button. */
+.cal-btn {
+  border-radius: 50% !important;
+  width: 32px;
+  height: 32px;
+  padding: 0 !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  /* No explicit border colour: inherit the dbc outline-secondary border so it
+     matches the "All" pill and the ⛶ fullscreen button exactly. */
+  background: transparent !important;
+  transition: background 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+}
+
+/* Hover / open (clicked) -> accent-blue fill, matching the other header pills.
+   No persistent highlight just because a window is set. `color: #fff` also
+   drives the icon (currentColor) to white. */
+.cal-btn:hover,
+.cal-btn:focus-visible,
+.cal-btn.active {
+  background: var(--accent-blue) !important;
+  border-color: var(--accent-blue) !important;
+  color: #ffffff !important;
+  box-shadow: 0 1px 10px var(--accent-blue-glow) !important;
+}
+
+/* The icon is a CSS mask (the SVG shape) tinted by `currentColor`, so it always
+   renders and matches the button's text colour exactly — i.e. the same muted
+   tone as the "All" pill (both are dbc outline-secondary), going white on
+   hover/open. No fragile <img> data-URI loading. */
+.cal-btn-svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+  pointer-events: none;
+  background-color: currentColor;
+  -webkit-mask: var(--cal-icon) center / contain no-repeat;
+  mask: var(--cal-icon) center / contain no-repeat;
+}
+
+:root {
+  --cal-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4.5' width='18' height='16.5' rx='2.5'/%3E%3Cpath d='M3 9.5h18'/%3E%3Cpath d='M8 2.5v4M16 2.5v4'/%3E%3Ccircle cx='8' cy='13.5' r='0.6'/%3E%3Ccircle cx='12' cy='13.5' r='0.6'/%3E%3Ccircle cx='16' cy='13.5' r='0.6'/%3E%3Ccircle cx='8' cy='17' r='0.6'/%3E%3Ccircle cx='12' cy='17' r='0.6'/%3E%3C/svg%3E");
+}
+
+/* ----- Bubble (mirrors the Configure-VaR popup's tone) ----- */
+.cal-popover {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: -2px;            /* right edge ≈ button right edge so the arrow lands on it */
+  width: 332px;
+  max-width: min(332px, 80vw);
+  padding: 16px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  /* Subtle white top-sheen over an opaque dark base — same palette/vibe as the
+     .var-modal. (Opaque base needed since the bubble floats over the chart.) */
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.015)),
+    linear-gradient(180deg, #1b2233, #141a27);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.03);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-8px) scale(0.98);
+  transform-origin: top right;
+  transition: opacity 160ms ease, transform 160ms cubic-bezier(0.2, 0.8, 0.3, 1), visibility 160ms ease;
+  pointer-events: none;
+}
+
+.cal-popover.open {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+/* Pointer triangle, centered under the 32px button. */
+.cal-popover::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  right: 16px;
+  width: 12px;
+  height: 12px;
+  background: #1b2233;
+  border-left: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+  transform: rotate(45deg);
+}
+
+/* Encapsulating section boxes — mirror the .var-alloc-rows container. */
+.cal-pop-box {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.cal-pop-range-box {
+  padding: 12px;
+}
+
+.cal-pop-slider-box {
+  padding: 15px 16px;
+}
+
+/* Header */
+.cal-pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cal-pop-head-l {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cal-pop-head-icon {
+  width: 15px;
+  height: 15px;
+  display: block;
+  background-color: var(--accent-blue);
+  -webkit-mask: var(--cal-icon) center / contain no-repeat;
+  mask: var(--cal-icon) center / contain no-repeat;
+}
+
+.cal-pop-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.cal-pop-close {
+  border-radius: 50% !important;
+  width: 24px;
+  height: 24px;
+  padding: 0 !important;
+  line-height: 1;
+  font-size: 15px;
+  border: 1px solid var(--border) !important;
+  background: transparent !important;
+  color: var(--muted) !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.cal-pop-close:hover,
+.cal-pop-close:focus-visible {
+  color: var(--text) !important;
+  background: rgba(255, 255, 255, 0.07) !important;
+}
+
+/* From / To readout chips (inside the range box) */
+.cal-pop-readout {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.cal-chip {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.cal-chip-cap {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: rgba(230, 233, 240, 0.45);
+}
+
+.cal-chip-val {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  color: var(--text);
+}
+
+.cal-chip-arrow {
+  align-self: center;
+  width: 16px;
+  height: 12px;
+  flex: none;
+  background-color: var(--accent-blue);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14M13 6l6 6-6 6'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14M13 6l6 6-6 6'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+/* ----- Slider redesign (overrides the shared .corr-range-slider base) -----
+   A slim gradient rail with no per-year dots and refined ringed handles, so it
+   reads as a sleek control rather than a beaded bar. */
+.cal-range-slider {
+  min-width: 0 !important;
+  width: 100%;
+  padding: 2px 9px !important;
+}
+
+/* No tick marks — the rail is the only flow content, vertically centered. */
+.cal-range-slider .rc-slider {
+  height: 6px;
+  margin-bottom: 0;
+}
+
+.cal-range-slider .rc-slider-rail {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.09);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.cal-range-slider .rc-slider-track {
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #3a9bff, #63c0ff);
+  box-shadow: 0 0 14px rgba(74, 168, 255, 0.55);
+}
+
+/* Drop the beaded year dots and the tick-mark labels for a clean rail — the
+   live From/To readouts show the dates while dragging instead. */
+.cal-range-slider .rc-slider-dot { display: none !important; }
+.cal-range-slider .rc-slider-mark { display: none !important; }
+
+.cal-range-slider .rc-slider-handle {
+  width: 16px;
+  height: 16px;
+  margin-top: -5px;
+  border: 3px solid var(--accent-blue);
+  background: #ffffff;
+  opacity: 1;
+  box-shadow: 0 2px 7px rgba(0, 0, 0, 0.5);
+  transition: box-shadow 150ms ease, transform 150ms ease, border-color 150ms ease;
+}
+
+.cal-range-slider .rc-slider-handle:hover {
+  box-shadow: 0 0 0 6px var(--accent-blue-glow), 0 2px 7px rgba(0, 0, 0, 0.5);
+}
+
+.cal-range-slider .rc-slider-handle:focus,
+.cal-range-slider .rc-slider-handle:focus-visible,
+.cal-range-slider .rc-slider-handle:active,
+.cal-range-slider .rc-slider-handle-dragging.rc-slider-handle-dragging.rc-slider-handle-dragging {
+  border-color: var(--accent-blue) !important;
+  box-shadow: 0 0 0 7px var(--accent-blue-glow), 0 2px 8px rgba(0, 0, 0, 0.55) !important;
+  transform: scale(1.06);
+  outline: none;
+}
+
+/* Light-theme rail / handle for the redesigned slider. */
+.app-root.theme-light .cal-range-slider .rc-slider-rail {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.app-root.theme-light .cal-range-slider .rc-slider-handle {
+  background: #ffffff;
+}
+
+/* ----- Light theme ----- */
+/* Light: keep the accent-blue hover/active (icon follows via currentColor). */
+.app-root.theme-light .cal-btn:hover,
+.app-root.theme-light .cal-btn:focus-visible,
+.app-root.theme-light .cal-btn.active {
+  background: var(--accent-blue) !important;
+  border-color: var(--accent-blue) !important;
+  color: #ffffff !important;
+}
+
+.app-root.theme-light .cal-popover {
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.015), rgba(0, 0, 0, 0.005)),
+    linear-gradient(180deg, #ffffff 0%, #f5f8fc 100%);
+  border-color: rgba(0, 0, 0, 0.09);
+  box-shadow: 0 24px 60px rgba(31, 42, 58, 0.2);
+}
+
+.app-root.theme-light .cal-popover::before {
+  background: #ffffff;
+  border-color: rgba(0, 0, 0, 0.09);
+}
+
+.app-root.theme-light .cal-pop-box {
+  border-color: rgba(0, 0, 0, 0.09);
+  background: rgba(0, 0, 0, 0.018);
+}
+
+.app-root.theme-light .cal-pop-title {
+  color: rgba(26, 34, 51, 0.55);
+}
+
+.app-root.theme-light .cal-chip {
+  border-color: rgba(0, 0, 0, 0.08);
+  background: rgba(0, 0, 0, 0.025);
+}
+
+.app-root.theme-light .cal-chip-cap {
+  color: rgba(26, 34, 51, 0.5);
+}
+
+.app-root.theme-light .cal-chip-val {
+  color: #1a2233;
+}
+
+.app-root.theme-light .cal-pop-close {
+  border-color: rgba(0, 0, 0, 0.14) !important;
+  color: rgba(26, 34, 51, 0.6) !important;
+}
+
+.app-root.theme-light .cal-pop-foot {
+  border-top-color: rgba(0, 0, 0, 0.08);
+}
+
+.app-root.theme-light .cal-reset-btn {
+  color: rgba(26, 34, 51, 0.62) !important;
+  border-color: rgba(0, 0, 0, 0.14) !important;
+}
+
+.app-root.theme-light .cal-reset-btn:hover,
+.app-root.theme-light .cal-reset-btn:focus-visible {
+  color: var(--accent-blue) !important;
+  border-color: var(--accent-blue) !important;
+  background: rgba(43, 125, 233, 0.1) !important;
 }
