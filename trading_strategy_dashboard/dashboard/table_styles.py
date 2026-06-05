@@ -78,36 +78,30 @@ def metrics_header_style(
 # ---------------------------------------------------------------------------
 # Value heat-map overlay (toggleable in Settings)
 # ---------------------------------------------------------------------------
-# Tints data cells with a translucent brand-green whose strength scales with how
-# "good" the value is — strong green = best, fading to the bare panel for the
-# worst. The tint is a single rgba(green, alpha) so it reads correctly over both
-# the dark and light panel backgrounds without theme branching.
+# A spreadsheet-style "green -> white" value scale (à la Excel). Each tinted cell
+# is an OPAQUE tile interpolated from a soft near-white (worst) to a rich green
+# (best), with dark text on top. Opaque light tiles are what make the steps easy
+# to tell apart: the scale spans a wide white->green LIGHTNESS range, instead of
+# a translucent green over the dark panel that collapses every value into a
+# narrow band of near-identical dark greens. The scale is intentionally
+# theme-independent so the metric cells read like a familiar Excel heat-map on
+# both the dark and light dashboards; only the surrounding chrome (header, label
+# column) follows the theme.
 
-_HEAT_MAX_ALPHA = 0.62
-
-# Worst -> best colour ramp. Spanning hue (deep teal-green through mid green to a
-# bright lime-green) as well as lightness gives adjacent values an extra axis of
-# contrast, so similar magnitudes no longer collapse into near-identical greens.
-_HEAT_RAMP = (
-    (28, 102, 84),     # t = 0.0  deep teal-green (worst-but-present)
-    (44, 168, 104),    # t = 0.5  mid brand green
-    (164, 244, 120),   # t = 1.0  bright lime-green (best)
-)
-
-
-def _ramp_rgb(t: float) -> tuple:
-    """Piecewise-linear interpolate the worst->best heat ramp at ``t`` in [0, 1]."""
-    t = max(0.0, min(1.0, t))
-    if t <= 0.5:
-        f, c0, c1 = t / 0.5, _HEAT_RAMP[0], _HEAT_RAMP[1]
-    else:
-        f, c0, c1 = (t - 0.5) / 0.5, _HEAT_RAMP[1], _HEAT_RAMP[2]
-    return tuple(round(c0[i] + (c1[i] - c0[i]) * f) for i in range(3))
+_HEAT_LOW = (233, 246, 239)    # worst value -> soft near-white green
+_HEAT_HIGH = (36, 156, 88)     # best value  -> rich, professional green
+_HEAT_TEXT = "#0f1c15"         # dark text, readable across the whole scale
+_HEAT_RING = (16, 74, 48)      # faint tile outline so cells separate on both themes
 
 # Metrics where a *smaller* number is the better outcome, so the colour scale is
 # inverted (small = green). Drawdowns are negative numbers, so a larger (closer
 # to zero) value is already the better outcome and needs no inversion.
 LOWER_IS_BETTER = frozenset({"Max DD Duration (Days)", "Std Daily PnL"})
+
+
+def _mix(c0: Sequence[float], c1: Sequence[float], t: float) -> tuple:
+    """Linear-interpolate two RGB triples at ``t`` in [0, 1]."""
+    return tuple(round(c0[i] + (c1[i] - c0[i]) * t) for i in range(3))
 
 
 def _parse_number(value) -> float | None:
@@ -147,25 +141,23 @@ def _intensity(v: float, lo: float, hi: float, invert: bool) -> float:
 
 
 def _cell_tint(row_index: int, column_id: str, intensity: float) -> dict:
-    """A rounded, softly-graded heat tile with a crisp ring.
+    """An opaque green→white heat tile (Excel-style) with dark, readable text.
 
-    Each value sits in its own rounded tile. Both the *colour* (along the worst->
-    best ramp) and the *alpha* track the value's goodness, so adjacent cells get a
-    distinct hue + lightness + opacity — making it easy to read which is better at
-    a glance instead of squinting at near-identical greens. A small alpha floor
-    keeps even the weakest value visibly tinted (so "tinted-low" reads apart from
-    "untinted").
+    The background interpolates soft near-white (worst) → rich green (best); a
+    fixed dark text colour stays legible across the whole range, and a faint ring
+    seats each value in its own tile. Opaque light tiles give the wide, easy-to-
+    read lightness gradient that a translucent-over-dark tint cannot.
     """
-    t = intensity
-    r, g, b = _ramp_rgb(t)
-    a = (0.22 + 0.78 * t) * _HEAT_MAX_ALPHA
-    top = min(a * 1.16, 0.74)
-    ring = min(a * 1.5, 0.9)
+    # Mild gamma so the mid-range greens separate a touch more than pure linear.
+    t = intensity ** 0.85
+    r, g, b = _mix(_HEAT_LOW, _HEAT_HIGH, t)
+    rr, rg, rb = _HEAT_RING
     return {
         "if": {"row_index": row_index, "column_id": column_id},
-        "background": f"linear-gradient(180deg, rgba({r},{g},{b},{top:.3f}), rgba({r},{g},{b},{a:.3f}))",
-        "borderRadius": "9px",
-        "boxShadow": f"inset 0 0 0 1px rgba({r},{g},{b},{ring:.3f})",
+        "backgroundColor": f"rgb({r},{g},{b})",
+        "color": _HEAT_TEXT,
+        "borderRadius": "8px",
+        "boxShadow": f"inset 0 0 0 1px rgba({rr},{rg},{rb},0.28)",
     }
 
 
@@ -237,12 +229,13 @@ def table_data_conditional(
 
     Always includes the left-aligned label column(s) and the transparent
     active/selected reset (so the selection box never flashes). When
-    *heatmap_on*, value-tint rules are inserted *before* the state reset so a
-    clicked cell still clears cleanly.
+    *heatmap_on*, the opaque value-tile rules are appended *after* the state
+    reset so a clicked/selected tinted cell keeps its tile and dark text (rather
+    than clearing to a transparent — and, with dark text, unreadable — cell).
     """
     label_ids = set(label_ids)
     align = [{"if": {"column_id": c}, "textAlign": "left"} for c in label_ids]
     heat: List[dict] = []
     if heatmap_on and data and columns:
         heat = _heatmap_cells(data, columns, label_ids, orient, lower_better)
-    return align + heat + _STATE_RESET
+    return align + _STATE_RESET + heat

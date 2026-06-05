@@ -111,18 +111,23 @@ class TestComputeVarScaledFrame:
             assert (scaled[col].iloc[:VAR_WINDOW] == 0.0).all()
 
     def test_sizing_math_matches_formula(self, daily_dates):
-        # Constant-magnitude alternating returns so rolling std is well-defined.
+        # Underlying returns drive sigma/notional; the strategy PnL is a DISTINCT
+        # series so the test pins down that scaled PnL = notional(t-1) * strategy_pnl(t)
+        # (NOT notional(t-1) * underlying_return(t)).
         n = len(daily_dates)
-        r = np.where(np.arange(n) % 2 == 0, 0.01, -0.01)
-        strat = pd.DataFrame({"date": daily_dates, "p": np.ones(n)})
+        r = np.where(np.arange(n) % 2 == 0, 0.01, -0.01)          # underlying returns
+        pnl = np.where(np.arange(n) % 2 == 0, 7.0, -3.0)          # strategy PnL (different)
+        strat = pd.DataFrame({"date": daily_dates, "p": pnl})
         rets = pd.DataFrame({"date": daily_dates, "p": r})
         scaled, diag = compute_var_scaled_frame(strat, rets, ["p"], 10000.0, {"p": 100})
 
-        ret_series = pd.Series(r)
-        sigma = ret_series.rolling(VAR_WINDOW, min_periods=VAR_WINDOW).std(ddof=1)
+        sigma = pd.Series(r).rolling(VAR_WINDOW, min_periods=VAR_WINDOW).std(ddof=1)
         notional = (10000.0 / (VAR_Z * sigma))
-        expected = (notional.shift(1) * ret_series).where(notional.shift(1).notna(), 0.0).fillna(0.0)
+        expected = (notional.shift(1) * pd.Series(pnl)).where(notional.shift(1).notna(), 0.0).fillna(0.0)
         np.testing.assert_allclose(scaled["p"].to_numpy(), expected.to_numpy(), rtol=1e-9, atol=1e-9)
+
+        # The diagnostics sigma is the rolling std of the *returns*, unchanged by PnL.
+        assert diag["latest"]["p"]["sigma"] == pytest.approx(float(sigma.dropna().iloc[-1]))
 
     def test_sigma_zero_guard_no_blowup(self, daily_dates):
         n = len(daily_dates)
@@ -176,6 +181,93 @@ class TestComputeVarScaledFrame:
         sp = compute_series(scaled, ["Brent_M3", "Gasoil_M3"])
         assert len(sp.equity) == len(scaled)
         assert sp.equity.iloc[0] == pytest.approx(scaled[["Brent_M3", "Gasoil_M3"]].sum(axis=1).iloc[0])
+
+    # ---- Fix: sigma/notional from returns, but scaled PnL from strategy PnL ----
+
+    def test_sigma_and_notional_independent_of_strategy_pnl(self, daily_dates):
+        """σ and notional come from returns_df only — changing the strategy PnL
+        leaves both untouched (point 1 & 2)."""
+        n = len(daily_dates)
+        rng = np.random.default_rng(11)
+        r = rng.normal(0.0, 0.01, n)
+        rets = pd.DataFrame({"date": daily_dates, "p": r})
+
+        strat_a = pd.DataFrame({"date": daily_dates, "p": rng.normal(100, 500, n)})
+        strat_b = pd.DataFrame({"date": daily_dates, "p": strat_a["p"] * 1000 + 7})  # very different PnL
+
+        _, diag_a = compute_var_scaled_frame(strat_a, rets, ["p"], 10000.0, {"p": 100})
+        _, diag_b = compute_var_scaled_frame(strat_b, rets, ["p"], 10000.0, {"p": 100})
+
+        # σ matches the rolling std of the underlying returns ...
+        expected_sigma = float(
+            pd.Series(r).rolling(VAR_WINDOW, min_periods=VAR_WINDOW).std(ddof=1).dropna().iloc[-1]
+        )
+        assert diag_a["latest"]["p"]["sigma"] == pytest.approx(expected_sigma)
+        # ... and is identical regardless of the strategy PnL.
+        assert diag_a["latest"]["p"]["sigma"] == pytest.approx(diag_b["latest"]["p"]["sigma"])
+
+        # Notional = var_alloc / (z * sigma), also unchanged by the strategy PnL.
+        expected_notional = 10000.0 / (VAR_Z * expected_sigma)
+        assert diag_a["latest"]["p"]["notional"] == pytest.approx(expected_notional)
+        assert diag_a["latest"]["p"]["notional"] == pytest.approx(diag_b["latest"]["p"]["notional"])
+
+    def test_scaled_pnl_uses_strategy_pnl_not_returns(self, daily_dates):
+        """Scaled PnL must be notional(t-1) * strategy_pnl(t); using the underlying
+        return instead would give a different series (point 3)."""
+        n = len(daily_dates)
+        rng = np.random.default_rng(202)
+        r = rng.normal(0.0, 0.01, n)                # underlying returns
+        pnl = rng.normal(50.0, 200.0, n)            # strategy PnL (independent magnitude/sign)
+        strat = pd.DataFrame({"date": daily_dates, "p": pnl})
+        rets = pd.DataFrame({"date": daily_dates, "p": r})
+
+        scaled, _ = compute_var_scaled_frame(strat, rets, ["p"], 10000.0, {"p": 100})
+
+        sigma = pd.Series(r).rolling(VAR_WINDOW, min_periods=VAR_WINDOW).std(ddof=1)
+        notional = 10000.0 / (VAR_Z * sigma)
+        prev = notional.shift(1)
+
+        from_pnl = (prev * pd.Series(pnl)).where(prev.notna(), 0.0).fillna(0.0)
+        from_ret = (prev * pd.Series(r)).where(prev.notna(), 0.0).fillna(0.0)
+
+        # Matches the strategy-PnL formula ...
+        np.testing.assert_allclose(scaled["p"].to_numpy(), from_pnl.to_numpy(), rtol=1e-9, atol=1e-9)
+        # ... and is clearly NOT the old underlying-return formula.
+        assert not np.allclose(scaled["p"].to_numpy(), from_ret.to_numpy())
+
+    def test_scaled_pnl_aligned_to_strategy_dates(self, daily_dates):
+        """Strategy PnL is matched to the underlying returns by DATE, not by row
+        position, even when the frames are shuffled / partially overlapping
+        (point 4)."""
+        n = len(daily_dates)
+        rng = np.random.default_rng(303)
+        r = rng.normal(0.0, 0.01, n)
+        pnl = rng.normal(40.0, 150.0, n)
+        rets = pd.DataFrame({"date": daily_dates, "p": r})
+
+        # Strategy frame: same dates but SHUFFLED order, and missing the last 5 days.
+        strat = (
+            pd.DataFrame({"date": daily_dates, "p": pnl})
+            .iloc[:-5]
+            .sample(frac=1.0, random_state=7)
+            .reset_index(drop=True)
+        )
+
+        scaled, _ = compute_var_scaled_frame(strat, rets, ["p"], 10000.0, {"p": 100})
+
+        # Inner join on date -> only the shared (first n-5) dates, in date order.
+        assert len(scaled) == n - 5
+        assert scaled["date"].is_monotonic_increasing
+
+        # Reconstruct the expectation by date-aligning PnL and returns explicitly.
+        pnl_by_date = dict(zip(strat["date"], strat["p"]))
+        merged = pd.DataFrame({"date": daily_dates.iloc[: n - 5]})
+        merged["pnl"] = merged["date"].map(pnl_by_date)
+        merged["ret"] = r[: n - 5]
+        sigma = merged["ret"].rolling(VAR_WINDOW, min_periods=VAR_WINDOW).std(ddof=1)
+        prev = (10000.0 / (VAR_Z * sigma)).shift(1)
+        expected = (prev * merged["pnl"]).where(prev.notna(), 0.0).fillna(0.0)
+        np.testing.assert_allclose(scaled["p"].to_numpy(), expected.to_numpy(), rtol=1e-9, atol=1e-9)
 
 
 # ---------------------------------------------------------------------------

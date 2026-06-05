@@ -3,14 +3,20 @@
 Implements per-strategy VaR scaling: each product is sized so that its daily
 95% VaR matches its slice of a total VaR budget, using
 
-    notional(t) = (total_var * pct) / (z * sigma(t))
-    scaled_pnl(t) = notional(t-1) * return(t)
+    notional(t)   = (total_var * pct) / (z * sigma(t))
+    scaled_pnl(t) = notional(t-1) * strategy_pnl(t)
 
 where ``sigma`` is the rolling standard deviation of the underlying's *daily
 returns* (from a per-strategy returns CSV), ``z = 1.645`` (95% one-tailed) and
-the window is 20 trading days. The ``shift(1)`` avoids look-ahead. Results are
-structurally identical to a PnL frame, so the existing equity/drawdown/metrics
-engine consumes them unchanged.
+the window is 20 trading days. The ``shift(1)`` avoids look-ahead.
+
+Crucially, volatility (and hence the notional) is estimated from the *underlying
+returns*, but that notional is applied to the *strategy's own PnL* — not to the
+underlying return. VaR scaling therefore only resizes the strategy's existing
+PnL stream; it preserves the strategy's directional signal rather than replacing
+it with a vol-targeted long position in the underlying. Results are structurally
+identical to a PnL frame, so the existing equity/drawdown/metrics engine consumes
+them unchanged.
 """
 
 from __future__ import annotations
@@ -203,6 +209,14 @@ def compute_var_scaled_frame(
         z:               VaR z-factor (default 1.645).
         window:          Rolling vol window (default 20).
 
+    Note:
+        Volatility (``sigma``) and therefore the VaR notional are estimated from
+        the *underlying daily returns* (``returns_df``). The realised, scaled PnL
+        is then that notional applied to the *strategy's own PnL* (``strategy_df``)
+        — NOT to the underlying return. This preserves the strategy's directional
+        signal: VaR scaling only resizes the strategy's existing PnL, it does not
+        replace it with a vol-targeted long position in the underlying.
+
     Returns:
         ``(scaled_df, diagnostics)``. ``scaled_df`` has ``"date"`` + one scaled-PnL
         column per usable product (structurally a PnL frame). ``diagnostics`` =
@@ -221,9 +235,20 @@ def compute_var_scaled_frame(
     products = valid_product_columns(strategy_df, products)
     tv = _coerce_float(total_var) or 0.0
 
-    # Inner-join on date so sigma warms up on the full shared history.
+    # Inner-join the strategy PnL columns against the underlying-returns frame on
+    # date, so sigma (from the returns) and the realised PnL (from the strategy)
+    # are evaluated on exactly the same shared trading days, and sigma warms up on
+    # the full shared history. Both frames carry identically-named product
+    # columns, so the returns columns are suffixed "_ret" to disambiguate them
+    # from the strategy PnL columns (which keep their bare names).
     aligned = (
-        pd.merge(strategy_df[["date"]], returns_df, on="date", how="inner")
+        pd.merge(
+            strategy_df[["date"] + products],
+            returns_df,
+            on="date",
+            how="inner",
+            suffixes=("", "_ret"),
+        )
         .sort_values("date")
         .reset_index(drop=True)
     )
@@ -237,15 +262,21 @@ def compute_var_scaled_frame(
         if p not in returns_df.columns:
             diagnostics["skipped"].append(p)
             continue
-        r = pd.to_numeric(aligned[p], errors="coerce")
+        # Volatility is estimated from the underlying returns ...
+        underlying_ret = pd.to_numeric(aligned[f"{p}_ret"], errors="coerce")
+        # ... but the realised PnL is the strategy's own PnL for this product,
+        # which carries the directional signal we must not discard.
+        strategy_pnl = pd.to_numeric(aligned[p], errors="coerce")
         pct = norm.get(p, 0.0) / 100.0
         var_alloc = tv * pct
 
-        sigma = r.rolling(window, min_periods=window).std(ddof=1)
+        sigma = underlying_ret.rolling(window, min_periods=window).std(ddof=1)
         denom = z * sigma
         notional = var_alloc / denom.where(denom > _EPS)  # NaN where sigma invalid/too small
+        # Notional is sized on yesterday's data and applied to today's strategy
+        # PnL (shift(1) avoids look-ahead).
         prev_notional = notional.shift(1)
-        scaled = (prev_notional * r).where(prev_notional.notna(), 0.0).fillna(0.0)
+        scaled = (prev_notional * strategy_pnl).where(prev_notional.notna(), 0.0).fillna(0.0)
         scaled_cols[p] = scaled.to_numpy()
 
         sigma_valid = sigma.dropna()
