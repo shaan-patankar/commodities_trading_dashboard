@@ -92,6 +92,12 @@ _HEAT_LOW = (233, 246, 239)    # worst value -> soft near-white green
 _HEAT_HIGH = (36, 156, 88)     # best value  -> rich, professional green
 _HEAT_TEXT = "#0f1c15"         # dark text, readable across the whole scale
 _HEAT_RING = (16, 74, 48)      # faint tile outline so cells separate on both themes
+# Tiles are very slightly translucent so they settle into the dashboard rather
+# than sitting on top as flat blocks — it softens the bright "white" end against
+# the dark panel and lets the panel's tone read faintly through, while staying
+# opaque enough that the hues still pop and the dark text stays readable (the
+# greenest cell still clears WCAG AA over the dark panel at this alpha).
+_HEAT_ALPHA = 0.94
 
 # Metrics where a *smaller* number is the better outcome, so the colour scale is
 # inverted (small = green). Drawdowns are negative numbers, so a larger (closer
@@ -141,24 +147,61 @@ def _intensity(v: float, lo: float, hi: float, invert: bool) -> float:
 
 
 def _cell_tint(row_index: int, column_id: str, intensity: float) -> dict:
-    """An opaque green→white heat tile (Excel-style) with dark, readable text.
+    """A green→white heat-tile rule for one cell (Excel-style), with dark text.
 
     The background interpolates soft near-white (worst) → rich green (best); a
     fixed dark text colour stays legible across the whole range, and a faint ring
-    seats each value in its own tile. Opaque light tiles give the wide, easy-to-
-    read lightness gradient that a translucent-over-dark tint cannot.
+    seats each value in its own tile. The rule carries no ``state`` condition, so
+    it applies in every cell state — paired with the background-preserving state
+    reset (see :data:`_STATE_RESET_KEEP_BG`), a click can never blank the tile
+    back to the dark panel.
     """
-    # Mild gamma so the mid-range greens separate a touch more than pure linear.
-    t = intensity ** 0.85
-    r, g, b = _mix(_HEAT_LOW, _HEAT_HIGH, t)
+    r, g, b = _mix(_HEAT_LOW, _HEAT_HIGH, intensity)
     rr, rg, rb = _HEAT_RING
     return {
         "if": {"row_index": row_index, "column_id": column_id},
-        "backgroundColor": f"rgb({r},{g},{b})",
+        "backgroundColor": f"rgba({r},{g},{b},{_HEAT_ALPHA})",
         "color": _HEAT_TEXT,
         "borderRadius": "8px",
         "boxShadow": f"inset 0 0 0 1px rgba({rr},{rg},{rb},0.28)",
     }
+
+
+# How strongly to spread shades by RANK rather than raw value. Pure value scaling
+# (0.0) leaves clustered values looking near-identical; pure rank (1.0) gives every
+# cell a distinct shade but ignores magnitude. Blending leans toward rank so the
+# ordering "pops" — within EACH row the best gets the greenest tile and the worst
+# the whitest, with the others clearly stepped between — while a value that is far
+# ahead still reads as noticeably deeper.
+_RANK_WEIGHT = 0.7
+
+
+def _blend_with_rank(items: List[tuple]) -> List[tuple]:
+    """Blend each ``(key, value_intensity)`` with a rank-spread intensity.
+
+    Ranking is by goodness (higher value-intensity = better); the best cell maps
+    to 1.0 and the worst to 0.0 with even spacing, so a row's cells always span
+    the full green→white range and are easy to rank even when the raw numbers
+    cluster. Ties share an averaged rank; a single cell keeps its value intensity.
+    """
+    n = len(items)
+    if n <= 1:
+        return items
+    order = sorted(range(n), key=lambda i: items[i][1])  # ascending by goodness
+    ranks = [0.0] * n
+    i = 0
+    while i < n:
+        j = i
+        while j + 1 < n and items[order[j + 1]][1] == items[order[i]][1]:
+            j += 1  # group equal-intensity ties
+        avg_rank = ((i + j) / 2.0) / (n - 1)
+        for k in range(i, j + 1):
+            ranks[order[k]] = avg_rank
+        i = j + 1
+    return [
+        (key, (1.0 - _RANK_WEIGHT) * vi + _RANK_WEIGHT * ranks[idx])
+        for idx, (key, vi) in enumerate(items)
+    ]
 
 
 def _heatmap_cells(
@@ -168,7 +211,7 @@ def _heatmap_cells(
     orient: str,
     lower_better: Iterable[str],
 ) -> List[dict]:
-    """Build per-cell tint rules, normalised per-row or per-column."""
+    """Build per-cell tint rules, normalised (and rank-spread) per-row or per-column."""
     lower_better = set(lower_better)
     value_cols = [c["id"] for c in columns if c["id"] not in label_ids]
     cells: List[dict] = []
@@ -183,8 +226,9 @@ def _heatmap_cells(
             invert = metric in lower_better
             vals = [v for _, v in nums]
             lo, hi = min(vals), max(vals)
-            for c, v in nums:
-                cells.append(_cell_tint(r, c, _intensity(v, lo, hi, invert)))
+            scored = [(c, _intensity(v, lo, hi, invert)) for c, v in nums]
+            for c, t in _blend_with_rank(scored):
+                cells.append(_cell_tint(r, c, t))
     else:  # per-column
         for c in value_cols:
             nums = [(r, _parse_number(row.get(c))) for r, row in enumerate(data)]
@@ -193,8 +237,9 @@ def _heatmap_cells(
                 continue
             vals = [v for _, v in nums]
             lo, hi = min(vals), max(vals)
-            for r, v in nums:
-                cells.append(_cell_tint(r, c, _intensity(v, lo, hi, False)))
+            scored = [(r, _intensity(v, lo, hi, False)) for r, v in nums]
+            for r, t in _blend_with_rank(scored):
+                cells.append(_cell_tint(r, c, t))
     return cells
 
 
@@ -215,6 +260,16 @@ _STATE_RESET = [
     },
 ]
 
+# Background-preserving variant for the heat-map: clicking a cell makes it the
+# "active" cell, and the plain reset above would blank its background to
+# transparent — turning the tile (with its dark text) black. This variant strips
+# only the default selection border/outline and leaves the background alone, so
+# the per-cell tile (a stateless rule) shows through in every state.
+_STATE_RESET_KEEP_BG = [
+    {"if": {"state": "active"}, "border": "0px", "borderBottom": "0px", "boxShadow": "none"},
+    {"if": {"state": "selected"}, "border": "0px", "borderBottom": "0px", "boxShadow": "none"},
+]
+
 
 def table_data_conditional(
     data: Sequence[dict] | None = None,
@@ -227,15 +282,16 @@ def table_data_conditional(
 ) -> List[dict]:
     """Compose a DataTable ``style_data_conditional`` list.
 
-    Always includes the left-aligned label column(s) and the transparent
-    active/selected reset (so the selection box never flashes). When
-    *heatmap_on*, the opaque value-tile rules are appended *after* the state
-    reset so a clicked/selected tinted cell keeps its tile and dark text (rather
-    than clearing to a transparent — and, with dark text, unreadable — cell).
+    Always includes the left-aligned label column(s) and an active/selected reset
+    so the selection box never flashes. Without the heat-map that reset blanks the
+    cell background (the original transparent behaviour). With *heatmap_on* it uses
+    the background-preserving reset instead, so clicking a tinted cell keeps its
+    tile and dark text rather than clearing to a transparent (black, unreadable)
+    cell.
     """
     label_ids = set(label_ids)
     align = [{"if": {"column_id": c}, "textAlign": "left"} for c in label_ids]
-    heat: List[dict] = []
     if heatmap_on and data and columns:
         heat = _heatmap_cells(data, columns, label_ids, orient, lower_better)
-    return align + _STATE_RESET + heat
+        return align + heat + _STATE_RESET_KEEP_BG
+    return align + _STATE_RESET

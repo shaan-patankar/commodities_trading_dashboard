@@ -616,8 +616,10 @@ def register_var_callbacks(
                     const headerH = headerEl ? headerEl.getBoundingClientRect().height : 42;
                     const rowH = (bodyRow ? bodyRow.getBoundingClientRect().height : 0) || 56;
                     const avail = wrap.clientHeight - headerH;
-                    // floor with a 1px margin so the rows never overflow into a scrollbar.
-                    const fit = Math.floor((avail - 1) / rowH);
+                    // Fill the whole visible body. floor() already guarantees the
+                    // rows can't overflow into a scrollbar; a tiny 0.5px nudge
+                    // absorbs sub-pixel rounding so we don't fall one row short.
+                    const fit = Math.floor((avail + 0.5) / rowH);
                     target = Math.max(rows.length, fit);
                 }
                 const blank = {};
@@ -626,10 +628,20 @@ def register_var_callbacks(
                 while (out.length < target) out.push(Object.assign({}, blank));
                 window.dash_clientside.set_props(tableId, {data: out});
             }
-            pad('#var-summary-wrapper .var-summary-table-wrapper', 'var-summary-table');
-            if (expandOpen) {
-                pad('.var-expand-modal .var-summary-table-wrapper', 'var-expand-table');
+            function runAll() {
+                pad('#var-summary-wrapper .var-summary-table-wrapper', 'var-summary-table');
+                if (expandOpen) {
+                    pad('.var-expand-modal .var-summary-table-wrapper', 'var-expand-table');
+                }
             }
+            // Run now, then again after the browser has settled the layout. This
+            // matters on the Portfolio tab: switching to it hides the "Configure
+            // VaR…" button, which grows the table wrapper by ~a row AFTER this
+            // callback first fires — so an immediate-only measure would leave a
+            // gap. The rAF + timeout re-measures against the final height.
+            runAll();
+            requestAnimationFrame(function(){ requestAnimationFrame(runAll); });
+            setTimeout(runAll, 120);
             return noup;
         }
         """,

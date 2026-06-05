@@ -523,13 +523,17 @@ html, body {
   border-bottom-right-radius: 14px;
 }
 
-/* Remove any default active/selected highlighting on the Key Metrics table */
+/* Remove the default active/selected highlight (border/outline) on the Key
+   Metrics cells. NB: we deliberately do NOT override `background` here — doing so
+   with !important would blank out the value heat-map tile when a cell is clicked
+   (it gains :focus), turning it black. Stripping only the box-shadow/outline
+   removes the highlight while leaving each cell's own background (the heat tile,
+   or transparent when the heat-map is off) intact. */
 .metrics-table-wrapper .dash-spreadsheet td.cell--selected,
 .metrics-table-wrapper .dash-spreadsheet td.cell--active,
 .metrics-table-wrapper .dash-spreadsheet td.cell--highlight,
 .metrics-table-wrapper .dash-spreadsheet td.focused,
 .metrics-table-wrapper .dash-spreadsheet td:focus {
-  background: transparent !important;
   box-shadow: none !important;
   outline: none !important;
 }

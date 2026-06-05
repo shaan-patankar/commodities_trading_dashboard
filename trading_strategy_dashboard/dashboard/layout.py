@@ -837,6 +837,11 @@ def build_layout(strategy_names: List[str], default_strategy: str, products: Lis
                                                         style_as_list_view=True,
                                                         fixed_rows={"headers": True},
                                                         fill_width=True,
+                                                        # Read-only display table: disabling cell
+                                                        # selection stops a click from activating a
+                                                        # cell (which would otherwise clear its
+                                                        # heat-map tile via the active-state style).
+                                                        cell_selectable=False,
                                                         style_table={
                                                             "maxHeight": "100%",
                                                             "minHeight": "0",
@@ -1023,6 +1028,9 @@ def build_layout(strategy_names: List[str], default_strategy: str, products: Lis
                                                 style_as_list_view=True,
                                                 fixed_rows={"headers": True},
                                                 fill_width=True,
+                                                # See metrics-table: disable selection so a click
+                                                # never clears the heat-map tile.
+                                                cell_selectable=False,
                                                 style_table={
                                                     "maxHeight": "100%",
                                                     "minHeight": "0",
