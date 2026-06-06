@@ -42,6 +42,19 @@ def _fmt_pct(x: float) -> str:
     return "—" if x is None or (isinstance(x, float) and math.isnan(x)) else f"{x * 100:,.2f}%"
 
 
+def _fmt_sig3(x: float) -> str:
+    """Plain number to 3 significant figures (no percentage)."""
+    if x is None:
+        return "—"
+    try:
+        xf = float(x)
+        if math.isnan(xf):
+            return "—"
+    except (TypeError, ValueError):
+        return "—"
+    return f"{xf:.3g}"
+
+
 def _fmt_cash(x: float) -> str:
     if x is None:
         return "—"
@@ -136,7 +149,7 @@ def _build_strategy_summary(strategy, strategies, returns, var_config):
     rows: List[dict] = []
     for p in products:
         latest = diag["latest"].get(p)
-        sigma = _fmt_pct(latest["sigma"]) if latest else "—"
+        sigma = _fmt_sig3(latest["sigma"]) if latest else "—"
         if active and latest is not None:
             rows.append({
                 "product": format_product_label(p),
@@ -172,7 +185,7 @@ def _build_fixed_summary(strategy, df, products, cfg, active, returns_df):
     rows: List[dict] = []
     for p in products:
         slat = sigma_latest.get(p)
-        sigma = _fmt_pct(slat["sigma"]) if slat else "—"
+        sigma = _fmt_sig3(slat["sigma"]) if slat else "—"
         vol = volumes.get(p)
         has_vol = vol is not None and vol != ""
         rows.append({

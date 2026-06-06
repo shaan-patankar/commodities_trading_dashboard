@@ -138,6 +138,7 @@ def equity_figure(
                 y=sp.hwm,
                 mode="lines",
                 name=f"{label} High Watermark",
+                showlegend=False,
                 hovertemplate="HWM: %{y:,.2f}<extra></extra>",
                 line=dict(width=1, dash="dot", color=color),
                 hoverlabel=dict(bgcolor=color, bordercolor=color),
