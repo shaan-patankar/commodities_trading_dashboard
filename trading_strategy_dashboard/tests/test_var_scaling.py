@@ -407,13 +407,13 @@ class TestEffectiveDispatch:
         cfg = {"mode": "fixed", "volumes": {"Brent_M3": 100000, "Gasoil_M3": 100000}, "active": True}
         frame, suffix = effective_scaled_frame(sample_strategy_df, None, ["Brent_M3", "Gasoil_M3"], cfg)
         assert not frame.empty
-        assert suffix == " (Fixed notional)"
+        assert suffix == " (Fixed Notional)"
 
     def test_vol_dispatch(self, sample_strategy_df, sample_returns_df):
         cfg = {"mode": "vol", "total_var": 10000, "allocations": {"Brent_M3": 50, "Gasoil_M3": 50}, "active": True}
         frame, suffix = effective_scaled_frame(sample_strategy_df, sample_returns_df, ["Brent_M3", "Gasoil_M3"], cfg)
         assert not frame.empty
-        assert suffix == " (VaR-scaled)"
+        assert suffix == " (VaR-Scaled)"
 
     def test_vol_without_returns_inert(self, sample_strategy_df):
         cfg = {"mode": "vol", "total_var": 10000, "allocations": {"Brent_M3": 50, "Gasoil_M3": 50}, "active": True}

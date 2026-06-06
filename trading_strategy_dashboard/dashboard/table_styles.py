@@ -79,25 +79,30 @@ def metrics_header_style(
 # Value heat-map overlay (toggleable in Settings)
 # ---------------------------------------------------------------------------
 # A spreadsheet-style "green -> white" value scale (à la Excel). Each tinted cell
-# is an OPAQUE tile interpolated from a soft near-white (worst) to a rich green
-# (best), with dark text on top. Opaque light tiles are what make the steps easy
-# to tell apart: the scale spans a wide white->green LIGHTNESS range, instead of
-# a translucent green over the dark panel that collapses every value into a
-# narrow band of near-identical dark greens. The scale is intentionally
-# theme-independent so the metric cells read like a familiar Excel heat-map on
-# both the dark and light dashboards; only the surrounding chrome (header, label
-# column) follows the theme.
+# is an opaque tile whose colour rides a VIVID, saturated green ramp from near-
+# white (worst) through a bright mid-green to a deep green (best). Routing the
+# ramp through a saturated mid-stop (rather than a straight white->deep-green
+# blend, which greys out the middle) makes the steps pop and easy to rank. To let
+# the deep end go genuinely dark without losing legibility, the text colour is
+# chosen PER TILE by its luminance: dark ink on the light end, light ink on the
+# deep-green end. The scale is theme-independent so the metric cells read like a
+# familiar Excel heat-map on both dashboards; only the surrounding chrome follows
+# the theme.
 
-_HEAT_LOW = (233, 246, 239)    # worst value -> soft near-white green
-_HEAT_HIGH = (36, 156, 88)     # best value  -> rich, professional green
-_HEAT_TEXT = "#0f1c15"         # dark text, readable across the whole scale
-_HEAT_RING = (16, 74, 48)      # faint tile outline so cells separate on both themes
-# Tiles are very slightly translucent so they settle into the dashboard rather
-# than sitting on top as flat blocks — it softens the bright "white" end against
-# the dark panel and lets the panel's tone read faintly through, while staying
-# opaque enough that the hues still pop and the dark text stays readable (the
-# greenest cell still clears WCAG AA over the dark panel at this alpha).
-_HEAT_ALPHA = 0.94
+# Worst -> best colour stops (saturated throughout so adjacent values pop).
+_HEAT_STOPS = (
+    (0.0, (246, 252, 246)),   # worst -> near-pure white
+    (0.5, (74, 192, 104)),    # mid   -> bright, saturated green
+    (1.0, (15, 122, 58)),     # best  -> deep, rich green
+)
+_HEAT_TEXT_DARK = "#0f1c15"    # ink for the light end of the scale
+_HEAT_TEXT_LIGHT = "#eef6f0"   # ink for the deep-green end (auto-picked below)
+_HEAT_RING = (12, 66, 42)      # faint tile outline so cells separate on both themes
+# Below this tile luminance the deep green needs light ink to stay legible; above
+# it dark ink reads best — picking per tile maximises contrast across the ramp.
+_HEAT_TEXT_LUM_THRESHOLD = 0.20
+# Fully opaque so the vivid tiles pop at maximum strength against the dark panel.
+_HEAT_ALPHA = 1.0
 
 # Metrics where a *smaller* number is the better outcome, so the colour scale is
 # inverted (small = green). Drawdowns are negative numbers, so a larger (closer
@@ -108,6 +113,25 @@ LOWER_IS_BETTER = frozenset({"Max DD Duration (Days)", "Std Daily PnL"})
 def _mix(c0: Sequence[float], c1: Sequence[float], t: float) -> tuple:
     """Linear-interpolate two RGB triples at ``t`` in [0, 1]."""
     return tuple(round(c0[i] + (c1[i] - c0[i]) * t) for i in range(3))
+
+
+def _ramp(t: float) -> tuple:
+    """Sample the multi-stop heat ramp at ``t`` in [0, 1] (piecewise-linear)."""
+    t = max(0.0, min(1.0, t))
+    for (t0, c0), (t1, c1) in zip(_HEAT_STOPS, _HEAT_STOPS[1:]):
+        if t <= t1:
+            f = 0.0 if t1 == t0 else (t - t0) / (t1 - t0)
+            return _mix(c0, c1, f)
+    return _HEAT_STOPS[-1][1]
+
+
+def _rel_luminance(rgb: Sequence[float]) -> float:
+    """WCAG relative luminance of an sRGB triple (0..1)."""
+    def _lin(c: float) -> float:
+        c = c / 255.0
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+    r, g, b = (_lin(x) for x in rgb)
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
 
 
 def _parse_number(value) -> float | None:
@@ -147,23 +171,26 @@ def _intensity(v: float, lo: float, hi: float, invert: bool) -> float:
 
 
 def _cell_tint(row_index: int, column_id: str, intensity: float) -> dict:
-    """A green→white heat-tile rule for one cell (Excel-style), with dark text.
+    """A green→white heat-tile rule for one cell, with auto-contrast text.
 
-    The background interpolates soft near-white (worst) → rich green (best); a
-    fixed dark text colour stays legible across the whole range, and a faint ring
-    seats each value in its own tile. The rule carries no ``state`` condition, so
-    it applies in every cell state — paired with the background-preserving state
-    reset (see :data:`_STATE_RESET_KEEP_BG`), a click can never blank the tile
-    back to the dark panel.
+    The background interpolates near-white (worst) → deep green (best); the text
+    colour is picked per tile from its luminance (dark ink on the light end,
+    light ink on the deep-green end) so it stays legible across the whole ramp. A
+    faint ring seats each value in its own tile. The rule carries no ``state``
+    condition, so it applies in every cell state — paired with the
+    background-preserving state reset (see :data:`_STATE_RESET_KEEP_BG`), a click
+    can never blank the tile back to the dark panel.
     """
-    r, g, b = _mix(_HEAT_LOW, _HEAT_HIGH, intensity)
+    rgb = _ramp(intensity)
+    r, g, b = rgb
     rr, rg, rb = _HEAT_RING
+    text = _HEAT_TEXT_LIGHT if _rel_luminance(rgb) < _HEAT_TEXT_LUM_THRESHOLD else _HEAT_TEXT_DARK
     return {
         "if": {"row_index": row_index, "column_id": column_id},
         "backgroundColor": f"rgba({r},{g},{b},{_HEAT_ALPHA})",
-        "color": _HEAT_TEXT,
+        "color": text,
         "borderRadius": "8px",
-        "boxShadow": f"inset 0 0 0 1px rgba({rr},{rg},{rb},0.28)",
+        "boxShadow": f"inset 0 0 0 1px rgba({rr},{rg},{rb},0.30)",
     }
 
 
@@ -173,7 +200,7 @@ def _cell_tint(row_index: int, column_id: str, intensity: float) -> dict:
 # ordering "pops" — within EACH row the best gets the greenest tile and the worst
 # the whitest, with the others clearly stepped between — while a value that is far
 # ahead still reads as noticeably deeper.
-_RANK_WEIGHT = 0.7
+_RANK_WEIGHT = 0.8
 
 
 def _blend_with_rank(items: List[tuple]) -> List[tuple]:

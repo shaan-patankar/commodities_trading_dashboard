@@ -616,10 +616,11 @@ def register_var_callbacks(
                     const headerH = headerEl ? headerEl.getBoundingClientRect().height : 42;
                     const rowH = (bodyRow ? bodyRow.getBoundingClientRect().height : 0) || 56;
                     const avail = wrap.clientHeight - headerH;
-                    // Fill the whole visible body. floor() already guarantees the
-                    // rows can't overflow into a scrollbar; a tiny 0.5px nudge
-                    // absorbs sub-pixel rounding so we don't fall one row short.
-                    const fit = Math.floor((avail + 0.5) / rowH);
+                    // Fill the whole visible body with no bottom gap: ceil() pads
+                    // to (or just past) the bottom, and the sub-row overflow of the
+                    // final blank row is clipped invisibly by the wrapper (its
+                    // scrollbars are hidden), so there's no gap and no scrollbar.
+                    const fit = Math.ceil(avail / rowH);
                     target = Math.max(rows.length, fit);
                 }
                 const blank = {};

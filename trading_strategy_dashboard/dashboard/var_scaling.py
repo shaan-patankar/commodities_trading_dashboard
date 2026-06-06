@@ -419,7 +419,7 @@ def effective_scaled_frame(
         if not validate_fixed_config(cfg.get("volumes", {}), products)["ok"]:
             return empty, ""
         frame, _ = compute_fixed_notional_frame(strategy_df, products, cfg.get("volumes", {}))
-        return (frame, " (Fixed notional)") if not frame.empty else (empty, "")
+        return (frame, " (Fixed Notional)") if not frame.empty else (empty, "")
 
     if returns_df is None:
         return empty, ""
@@ -428,7 +428,7 @@ def effective_scaled_frame(
     frame, _ = compute_var_scaled_frame(
         strategy_df, returns_df, products, cfg.get("total_var"), cfg.get("allocations", {})
     )
-    return (frame, " (VaR-scaled)") if not frame.empty else (empty, "")
+    return (frame, " (VaR-Scaled)") if not frame.empty else (empty, "")
 
 
 def effective_aggregate_series(

@@ -1082,13 +1082,34 @@ def register_callbacks(
             return {ctx["agg_label"]: compute_series(fdf, ctx["cols"])}
         return {ctx["label_fn"](c): compute_series(fdf, [c]) for c in ctx["cols"]}
 
+    def _snap_month_window(dates, lo, hi):
+        """Snap a ``[lo, hi]`` index window to whole calendar months.
+
+        FROM (``lo``) moves to the first row of ``dates[lo]``'s month (≈ the
+        month start); TO (``hi``) moves to the last row of ``dates[hi]``'s month
+        (≈ the month end), so a window picked mid-month covers those months in
+        full. Purely index-based, so the result stays valid for the shared frame.
+        """
+        if dates is None or len(dates) == 0:
+            return lo, hi
+        n = len(dates)
+        lo = max(0, min(int(lo), n - 1))
+        hi = max(lo, min(int(hi), n - 1))
+        periods = dates.dt.to_period("M")
+        # dates carries a 0..n-1 RangeIndex, so idxmax returns positional indices.
+        new_lo = int((periods == periods.iloc[lo]).idxmax())
+        new_hi = int((periods == periods.iloc[hi]).iloc[::-1].idxmax())
+        return new_lo, new_hi
+
     def _window_df(ctx, cycle_key, cal_value):
         """Resolve a panel's working frame.
 
         A calendar window ([lo, hi] row indices) takes precedence over the cycle
         preset; a window spanning the full extent (or ``None``) defers to the
         preset. Index-based slicing matches the shared resolved frame, so a
-        global window means the same dates across every panel.
+        global window means the same dates across every panel. The window is
+        snapped to whole months so plots and metrics always start/end on month
+        boundaries.
         """
         df = ctx["df"]
         if df is None:
@@ -1097,6 +1118,9 @@ def register_callbacks(
         if cal_value and n:
             lo = max(0, min(int(cal_value[0]), n - 1))
             hi = max(lo, min(int(cal_value[1]), n - 1))
+            if "date" in getattr(df, "columns", []):
+                dates = pd.to_datetime(df["date"]).reset_index(drop=True)
+                lo, hi = _snap_month_window(dates, lo, hi)
             if not (lo <= 0 and hi >= n - 1):
                 return df.iloc[lo:hi + 1]
         return filter_df_by_range(df, cycle_key)
@@ -1315,7 +1339,128 @@ def register_callbacks(
                     rt = setTimeout(function() {
                         window.dash_clientside.set_props('store-win-tick',
                             {data: (window.__winTick = (window.__winTick || 0) + 1)});
+                        if (window.__evalProductOverflow) window.__evalProductOverflow();
                     }, 180);
+                });
+            }
+
+            // ---- Product-bar overflow + shared arrow-key scrolling ----
+            if (!window.__scrollHelpers) {
+                window.__scrollHelpers = true;
+                window.__SCROLL_STEP = 150;   // px per arrow press
+                window.__OVF_TOL = 4;         // overflow tolerance (sub-pixel)
+
+                // When the product pills overflow, switch the bar to flex-start so
+                // the first pills stay reachable by the arrow keys (flex-end pushes
+                // the overflow off-screen left, where scrollLeft can't reach it).
+                // Measure the CONTENT width vs the bar — the bar's own scrollWidth is
+                // unreliable under justify-content:flex-end.
+                window.__evalProductOverflow = function() {
+                    var bar = document.querySelector('.topbar-products');
+                    var content = document.getElementById('product-buttons');
+                    if (!bar || !content) return;
+                    var overflowing = (content.scrollWidth - bar.clientWidth) > window.__OVF_TOL;
+                    bar.classList.toggle('is-overflowing', overflowing);
+                };
+
+                // First element in *root* (self or descendant) that can scroll on
+                // *axis* ('x' or 'y').
+                window.__findScrollable = function(root, axis) {
+                    if (!root) return null;
+                    var els = [root];
+                    var kids = root.querySelectorAll ? root.querySelectorAll('*') : [];
+                    for (var k = 0; k < kids.length; k++) els.push(kids[k]);
+                    for (var i = 0; i < els.length; i++) {
+                        var el = els[i], cs = getComputedStyle(el);
+                        if (axis === 'x' && (el.scrollWidth - el.clientWidth) > window.__OVF_TOL
+                            && (cs.overflowX === 'auto' || cs.overflowX === 'scroll')) return el;
+                        if (axis === 'y' && (el.scrollHeight - el.clientHeight) > window.__OVF_TOL
+                            && (cs.overflowY === 'auto' || cs.overflowY === 'scroll')) return el;
+                    }
+                    return null;
+                };
+            }
+
+            // Bind the overflow evaluator once; re-run when the product pills change.
+            if (!window.__productEvalBound) {
+                if (document.querySelector('.topbar-products')) {
+                    window.__productEvalBound = true;
+                    window.__evalProductOverflow();
+                }
+            }
+            if (!window.__productObsBound) {
+                var pbtns = document.getElementById('product-buttons');
+                if (pbtns) {
+                    window.__productObsBound = true;
+                    var mo = new MutationObserver(function() {
+                        var bar = document.querySelector('.topbar-products');
+                        if (bar) bar.scrollLeft = 0;
+                        window.requestAnimationFrame(function() {
+                            window.requestAnimationFrame(window.__evalProductOverflow);
+                        });
+                    });
+                    mo.observe(pbtns, { childList: true, subtree: false });
+                }
+            }
+
+            // Shared keyboard scrolling for the product bar and the metrics / VaR
+            // tables. Left/Right scroll horizontally; Up/Down scroll vertically;
+            // Home/End jump to the extremes. A fullscreen modal (Key Metrics or VaR
+            // Scaling) always owns the keys while open; otherwise the keys act on the
+            // scrollable region under the mouse (product bar or a table). For tables,
+            // Home -> top + far-left, End -> bottom + far-left; for the product bar,
+            // Home -> far-left, End -> far-right.
+            if (!window.__arrowKeysBound) {
+                window.__arrowKeysBound = true;
+                window.__lastHovered = null;
+                document.addEventListener('mousemove', function(e) {
+                    window.__lastHovered = (e.target && e.target.closest)
+                        ? e.target.closest('.topbar-products, .dash-table-container')
+                        : null;
+                });
+                document.addEventListener('keydown', function(e) {
+                    var k = e.key;
+                    var isArrow = (k === 'ArrowLeft' || k === 'ArrowRight' ||
+                                   k === 'ArrowUp' || k === 'ArrowDown');
+                    var isHomeEnd = (k === 'Home' || k === 'End');
+                    if (!isArrow && !isHomeEnd) return;
+                    var ae = document.activeElement;
+                    if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' ||
+                               ae.isContentEditable)) return;
+                    var modal = document.querySelector(
+                        '.metrics-modal-overlay.open, .var-expand-overlay.open');
+                    var root = modal ? modal : window.__lastHovered;
+                    if (!root) return;
+                    var xt = window.__findScrollable(root, 'x');
+                    var yt = window.__findScrollable(root, 'y');
+                    if (!xt && !yt) return;
+                    var step = window.__SCROLL_STEP;
+
+                    if (isHomeEnd) {
+                        var pureHoriz = xt && !yt;   // product bar: single horizontal axis
+                        if (pureHoriz) {
+                            var left = (k === 'Home') ? 0 : (xt.scrollWidth - xt.clientWidth);
+                            xt.scrollTo({ left: left, behavior: 'smooth' });
+                        } else {
+                            if (xt) xt.scrollTo({ left: 0, behavior: 'smooth' });   // far-left
+                            if (yt) {
+                                var top = (k === 'Home') ? 0 : (yt.scrollHeight - yt.clientHeight);
+                                yt.scrollTo({ top: top, behavior: 'smooth' });
+                            }
+                        }
+                        e.preventDefault();
+                        return;
+                    }
+
+                    var horiz = (k === 'ArrowLeft' || k === 'ArrowRight');
+                    var target = horiz ? xt : yt;
+                    if (!target) return;
+                    if (horiz) {
+                        target.scrollBy({ left: (k === 'ArrowRight' ? 1 : -1) * step, behavior: 'smooth' });
+                    } else {
+                        target.scrollBy({ top: (k === 'ArrowDown' ? 1 : -1) * step, behavior: 'smooth' });
+                    }
+                    e.preventDefault();
                 });
             }
             return window.dash_clientside.no_update;

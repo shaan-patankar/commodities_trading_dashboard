@@ -71,10 +71,23 @@ html, body {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  /* Keep the strategy title on a single line at its natural width; the product
+     bar (which has its own horizontal scroll) gives up space instead of the
+     title wrapping. */
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.topbar-title #header-title {
+  white-space: nowrap;
 }
 
 .topbar-spacer {
-  flex: 1;
+  /* Grows to push the product bar right when there's room, but never collapses
+     below a fixed gap — so when the pills overflow (is-overflowing) the title and
+     the first "All" pill keep clear breathing room instead of butting together. */
+  flex: 1 1 auto;
+  min-width: 40px;
 }
 
 .topbar-products {
@@ -92,6 +105,14 @@ html, body {
 
 .topbar-products::-webkit-scrollbar {
   display: none;
+}
+
+/* When the pills overflow, switch from flex-end to flex-start: flex-end clips
+   the START of overflowing flex content (so the first pills become unreachable).
+   Toggled by JS only while overflowing, so non-overflowing pills still hug the
+   gear on the right. */
+.topbar-products.is-overflowing {
+  justify-content: flex-start;
 }
 
 #product-buttons {
@@ -201,6 +222,17 @@ html, body {
 
 #panel-metrics {
   grid-area: metrics;
+}
+
+/* Cap the right-column panels at 46vw so a wide Key Metrics table (many products)
+   can't grow its grid column unbounded and squeeze the left Equity/Drawdown
+   panels off-screen. The grid column max is still max-content, but a grid item's
+   max-content contribution is clamped by its max-width — so the column grows with
+   the table up to 46vw, then the table scrolls horizontally inside the panel. */
+#panel-metrics,
+#panel-custom {
+  max-width: 46vw;
+  min-width: 0;
 }
 
 /* ========== Cards ========== */
@@ -403,6 +435,18 @@ html, body {
   clip-path: inset(0 round 14px);
   pointer-events: auto;
   z-index: 3;
+}
+
+/* Inline Key Metrics table: once the right grid column hits its 40vw cap, the
+   wrapper must not grow past it (the base rule's width:max-content would). Pin it
+   to the column so the inner .dash-spreadsheet-container takes over horizontal
+   scrolling. Below the cap the column is max-content-sized to the table, so 100%
+   equals the content width and nothing scrolls (unchanged behaviour). Scoped to
+   #panel-metrics so the VaR summary table and the modal are untouched. */
+#panel-metrics .metrics-table-wrapper {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .metrics-table-wrapper .dash-table-container,
@@ -799,6 +843,11 @@ html, body {
 .product-pill {
   position: relative;
   isolation: isolate;
+  /* Keep each pill at its natural one-line width and never shrink, so product
+     names never wrap or get squeezed — instead the bar overflows and the scroll
+     arrow / arrow-keys take over. */
+  flex: 0 0 auto;
+  white-space: nowrap;
   border-radius: 999px;
   border: 1px solid var(--border) !important;
   background: rgba(255,255,255,0.03);
@@ -1093,6 +1142,10 @@ html, body {
   display: flex;
   min-width: 0;
   width: 100%;
+  /* Stay within the modal body (overriding the base width:max-content) so the
+     inner container scrolls horizontally instead of the table overflowing and
+     clipping columns when there are many products. */
+  max-width: 100%;
 }
 
 /* -- Custom Analytics Modal -- */
@@ -1238,7 +1291,7 @@ html, body {
 /* ========== Layout Variants (Focused, Analytics, Panel-Hidden) ========== */
 
 .body-grid.layout-focused {
-  grid-template-columns: minmax(0, 2.6fr) minmax(320px, max-content);
+  grid-template-columns: minmax(0, 2.6fr) minmax(320px, min(max-content, 40vw));
   grid-template-rows: minmax(0, 1fr);
   grid-template-areas: "equity metrics";
 }
